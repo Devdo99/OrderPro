@@ -1,0 +1,96 @@
+/* src/index.css */
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Palet warna baru yang lebih profesional dan hangat */
+@layer base {
+  :root {
+    --background: 220 20% 98%;
+    --foreground: 220 15% 25%;
+
+    --card: 220 20% 100%;
+    --card-foreground: 220 15% 25%;
+
+    --popover: 220 20% 100%;
+    --popover-foreground: 220 15% 25%;
+
+    --primary: 220 17% 25%; /* Charcoal */
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 220 15% 96%;
+    --secondary-foreground: 220 17% 25%;
+
+    --muted: 220 15% 94%;
+    --muted-foreground: 220 10% 45%;
+
+    --accent: 28 85% 50%; /* Golden-Orange Accent */
+    --accent-foreground: 0 0% 100%;
+
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 220 15% 88%;
+    --input: 220 15% 88%;
+    --ring: 28 85% 50%; /* Golden-Orange Ring */
+
+    --radius: 0.5rem;
+
+    /* Warna Sidebar Baru */
+    --sidebar-background: 30 20% 21%; /* Dark Wood/Coffee Brown */
+    --sidebar-foreground: 30 15% 95%;
+    --sidebar-accent: 28 85% 50%;
+    --sidebar-accent-foreground: 0 0% 100%;
+    --sidebar-border: 30 20% 28%;
+    --sidebar-ring: 28 85% 55%;
+  }
+
+  .dark {
+    /* Implementasi Dark Mode bisa disesuaikan lebih lanjut jika perlu */
+    --background: 220 15% 10%;
+    --foreground: 220 20% 98%;
+
+    --card: 220 15% 12%;
+    --card-foreground: 220 20% 98%;
+
+    --popover: 220 15% 12%;
+    --popover-foreground: 220 20% 98%;
+
+    --primary: 30 15% 95%;
+    --primary-foreground: 220 17% 25%;
+
+    --secondary: 220 15% 18%;
+    --secondary-foreground: 220 20% 98%;
+
+    --muted: 220 15% 18%;
+    --muted-foreground: 220 10% 65%;
+
+    --accent: 28 85% 55%;
+    --accent-foreground: 220 17% 25%;
+
+    --destructive: 0 63% 31%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 220 15% 20%;
+    --input: 220 15% 20%;
+    --ring: 28 85% 55%;
+    
+    --sidebar-background: 220 15% 12%;
+    --sidebar-foreground: 220 20% 98%;
+    --sidebar-accent: 28 85% 55%;
+    --sidebar-accent-foreground: 220 17% 25%;
+    --sidebar-border: 220 15% 20%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+}
+
+/* Sisa CSS lainnya tetap sama */
