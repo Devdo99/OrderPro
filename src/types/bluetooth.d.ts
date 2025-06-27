@@ -15,7 +15,7 @@ interface BluetoothRemoteGATTServer {
   connect(): Promise<BluetoothRemoteGATTServer>;
   disconnect(): void;
   getPrimaryService(service: BluetoothServiceUUID): Promise<BluetoothRemoteGATTService>;
-  getPrimaryServices(service?: BluetoothServiceUUID): Promise<BluetoothRemoteGATTService[]>; // Tambahkan ini
+  getPrimaryServices(service?: BluetoothServiceUUID): Promise<BluetoothRemoteGATTService[]>;
 }
 
 interface BluetoothRemoteGATTService {
@@ -23,7 +23,7 @@ interface BluetoothRemoteGATTService {
   uuid: string;
   isPrimary: boolean;
   getCharacteristic(characteristic: BluetoothCharacteristicUUID): Promise<BluetoothRemoteGATTCharacteristic>;
-  getCharacteristics(characteristic?: BluetoothCharacteristicUUID): Promise<BluetoothRemoteGATTCharacteristic[]>; // <-- BARIS INI YANG DIPERBAIKI
+  getCharacteristics(characteristic?: BluetoothCharacteristicUUID): Promise<BluetoothRemoteGATTCharacteristic[]>;
 }
 
 interface BluetoothRemoteGATTCharacteristic {
@@ -65,6 +65,7 @@ type BluetoothCharacteristicUUID = string | number;
 interface Bluetooth extends EventTarget {
   getAvailability(): Promise<boolean>;
   requestDevice(options?: RequestDeviceOptions): Promise<BluetoothDevice>;
+  getDevices(): Promise<BluetoothDevice[]>; // <-- TAMBAHKAN FUNGSI INI
   addEventListener(type: 'availabilitychanged', listener: (event: Event) => void): void;
 }
 

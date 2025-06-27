@@ -329,7 +329,6 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     reconnect();
   }, [_connectToDeviceAndSetState]);
     
-  // **LOGIKA CETAK BARU: KIRIM KE SEMUA PRINTER AKTIF**
   const printToAllPrinters = async (data: Uint8Array) => {
     if (activePrinters.length === 0) {
         toast({ title: "Tidak Ada Printer Terhubung", variant: "destructive" });
