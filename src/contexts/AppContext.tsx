@@ -61,7 +61,7 @@ const defaultSettings: AppSettings = { restaurantName: 'RestoranKu', address: 'J
 const mapOrderRowToOrder = (row: OrderRow): Order => ({ id: row.id, orderNumber: row.order_number, createdAt: new Date(row.created_at), items: (row.items as unknown as OrderItem[]) || [], totalItems: row.total_items || 0, status: (row.status as Order['status']) || 'pending', customer: row.customer || undefined, tableNumber: row.table_number || undefined, staffName: row.staff_name || undefined, notes: row.notes || undefined, orderType: row.order_type || undefined, });
 const mapStockRowToStockItem = (row: StockRow): StockItem => ({ ...row, id: row.id, created_at: row.created_at, last_updated: row.last_updated, name: row.name, type: row.type as 'BAHAN' | 'PRODUK', category: row.category || '', unit: row.unit || '', recipe: (row.recipe as unknown as RecipeItem[]) || null, variants: (row.variants as unknown as ProductVariant[]) || null, current_stock: row.current_stock, min_stock: row.min_stock });
 
-const SAVED_PRINTER_ID_KEY = 'orderpal-saved-printer-id';
+const SAVED_PRINTER_IDS_KEY = 'orderpal-saved-printer-ids';
 
 export const AppProvider = ({ children }: { children: ReactNode }) => {
   const [session, setSession] = useState<Session | null>(null);
@@ -150,9 +150,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     const { data, error } = await supabase.from('orders').insert(newOrder).select().single();
     if (error) { toast({ title: 'Gagal menyimpan pesanan', description: error.message, variant: 'destructive' }); return; }
     if (settings.autoPrintReceipt && data) {
-      for (let i = 0; i < (settings.printCopies || 1); i++) {
-        await printReceipt(mapOrderRowToOrder(data));
-      }
+      await printReceipt(mapOrderRowToOrder(data));
     }
   };
   
@@ -246,8 +244,18 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     }
 
     const newPrinter: ActivePrinter = { device, server, characteristic: writableCharacteristic };
-    setActivePrinters([newPrinter]);
-    localStorage.setItem(SAVED_PRINTER_ID_KEY, device.id);
+    
+    setActivePrinters(prev => {
+        const existingIds = prev.map(p => p.device.id);
+        if (existingIds.includes(device.id)) return prev;
+        const newActivePrinters = [...prev, newPrinter];
+        
+        const idsToSave = newActivePrinters.map(p => p.device.id);
+        localStorage.setItem(SAVED_PRINTER_IDS_KEY, JSON.stringify(idsToSave));
+
+        return newActivePrinters;
+    });
+    
     return true;
   }, []);
 
@@ -277,14 +285,19 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     if (printerToDisconnect && printerToDisconnect.server.connected) {
       printerToDisconnect.server.disconnect();
     }
-    setActivePrinters([]);
-    localStorage.removeItem(SAVED_PRINTER_ID_KEY);
+    
+    const newActivePrinters = activePrinters.filter(p => p.device.id !== printerId);
+    setActivePrinters(newActivePrinters);
+    
+    const idsToSave = newActivePrinters.map(p => p.device.id);
+    localStorage.setItem(SAVED_PRINTER_IDS_KEY, JSON.stringify(idsToSave));
+
     toast({ title: "Koneksi Printer Diputus" });
   }, [activePrinters]);
 
   useEffect(() => {
-    const savedPrinterId = localStorage.getItem(SAVED_PRINTER_ID_KEY);
-    if (!savedPrinterId) {
+    const savedIdsString = localStorage.getItem(SAVED_PRINTER_IDS_KEY);
+    if (!savedIdsString) {
       setIsReconnectingPrinter(false);
       return;
     };
@@ -295,18 +308,20 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
         return;
       }
       
-      console.log("Mencoba menyambung ulang ke printer...");
+      console.log("Mencoba menyambung ulang ke printer tersimpan...");
+      const savedIds = JSON.parse(savedIdsString) as string[];
       const permittedDevices = await navigator.bluetooth.getDevices();
-      const savedDevice = permittedDevices.find(d => d.id === savedPrinterId);
-
-      if (savedDevice) {
-        try {
-          await _connectToDeviceAndSetState(savedDevice);
-          toast({ title: "Printer Tersambung Otomatis", description: `Terhubung kembali ke ${savedDevice.name}` });
-        } catch (error) {
-          console.error("Gagal menyambung ulang otomatis:", error);
-          localStorage.removeItem(SAVED_PRINTER_ID_KEY);
-        }
+      
+      for(const savedId of savedIds) {
+          const savedDevice = permittedDevices.find(d => d.id === savedId);
+          if (savedDevice) {
+            try {
+              await _connectToDeviceAndSetState(savedDevice);
+              toast({ title: "Printer Tersambung Otomatis", description: `Terhubung kembali ke ${savedDevice.name}` });
+            } catch (error) {
+              console.error("Gagal menyambung ulang otomatis:", error);
+            }
+          }
       }
       setIsReconnectingPrinter(false);
     };
@@ -314,54 +329,46 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     reconnect();
   }, [_connectToDeviceAndSetState]);
     
-  const printReceipt = async (order: Order): Promise<boolean> => {
-      if (activePrinters.length === 0) {
-          toast({ title: "Tidak Ada Printer Terhubung", variant: "destructive" });
-          return false;
-      }
-      const printer = activePrinters[0];
-      try {
-          if (!printer.server.connected) await printer.server.connect();
-          const receiptData = await generateReceiptBytes(order, settings);
-          const chunkSize = 100;
-
-          for (let i = 0; i < receiptData.length; i += chunkSize) {
-              const chunk = receiptData.slice(i, i + chunkSize);
-              await printer.characteristic.writeValueWithoutResponse(chunk);
-          }
-
-          toast({ title: "Berhasil Mencetak" });
-          return true;
-      } catch (error: any) {
-          toast({ title: "Gagal Mencetak", description: error.message, variant: "destructive" });
-          console.error("Printing error:", error);
-          return false;
-      }
-  };
-
-  const printBoxOrderReceipt = async (order: BoxOrder): Promise<boolean> => {
+  // **LOGIKA CETAK BARU: KIRIM KE SEMUA PRINTER AKTIF**
+  const printToAllPrinters = async (data: Uint8Array) => {
     if (activePrinters.length === 0) {
         toast({ title: "Tidak Ada Printer Terhubung", variant: "destructive" });
         return false;
     }
-    const printer = activePrinters[0];
-    try {
-        if (!printer.server.connected) await printer.server.connect();
-        const receiptData = await generateBoxOrderReceiptBytes(order, settings);
-        const chunkSize = 100;
 
-        for (let i = 0; i < receiptData.length; i += chunkSize) {
-            const chunk = receiptData.slice(i, i + chunkSize);
-            await printer.characteristic.writeValueWithoutResponse(chunk);
+    let allPrintedSuccessfully = true;
+    const chunkSize = 100;
+
+    for (const printer of activePrinters) {
+        try {
+            if (!printer.server.connected) await printer.server.connect();
+
+            for (let i = 0; i < data.length; i += chunkSize) {
+                const chunk = data.slice(i, i + chunkSize);
+                await printer.characteristic.writeValueWithoutResponse(chunk);
+            }
+            console.log(`Berhasil mengirim ke printer: ${printer.device.name}`);
+        } catch (error: any) {
+            allPrintedSuccessfully = false;
+            toast({ title: `Gagal Mencetak ke ${printer.device.name}`, description: error.message, variant: "destructive" });
+            console.error(`Printing error on ${printer.device.name}:`, error);
         }
-
-        toast({ title: "Berhasil Mencetak Tanda Terima" });
-        return true;
-    } catch (error: any) {
-        toast({ title: "Gagal Mencetak", description: error.message, variant: "destructive" });
-        console.error("Printing error:", error);
-        return false;
     }
+    
+    if (allPrintedSuccessfully) {
+        toast({ title: "Berhasil Mencetak", description: `Struk dikirim ke ${activePrinters.length} printer.` });
+    }
+    return allPrintedSuccessfully;
+  }
+
+  const printReceipt = async (order: Order): Promise<boolean> => {
+    const receiptData = await generateReceiptBytes(order, settings);
+    return await printToAllPrinters(receiptData);
+  };
+
+  const printBoxOrderReceipt = async (order: BoxOrder): Promise<boolean> => {
+    const receiptData = await generateBoxOrderReceiptBytes(order, settings);
+    return await printToAllPrinters(receiptData);
   };
 
   const value: AppContextType = {

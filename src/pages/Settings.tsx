@@ -157,7 +157,7 @@ export default function Settings() {
             </div>
             <div className="flex items-center justify-between rounded-lg border p-3">
                <Label htmlFor="autoPrint" className="flex flex-col gap-1">
-                 <span>Cetak Struk Otomatis</span>
+                 <span>Cetak Struk Otomatis ke Semua Printer</span>
                  <span className="font-normal text-sm text-muted-foreground">Otomatis cetak setelah pesanan disimpan.</span>
                </Label>
                <Switch id="autoPrint" checked={formData.autoPrintReceipt} onCheckedChange={(checked) => setFormData(p => ({ ...p!, autoPrintReceipt: checked }))} />
@@ -166,29 +166,31 @@ export default function Settings() {
            <div>
               <Label>Printer Bluetooth</Label>
               <div className='space-y-2 mt-2'>
-                {isReconnectingPrinter ? (
+                {isReconnectingPrinter && (
                    <div className="flex items-center justify-center p-3 bg-gray-100 text-gray-800 rounded-lg border">
                       <Loader2 className="mr-2 h-4 w-4 animate-spin"/>
                       <span>Mencoba menyambung ulang ke printer...</span>
                    </div>
-                ) : activePrinters.length > 0 ? (
-                    activePrinters.map(p => (
-                        <div key={p.device.id} className="flex items-center justify-between p-3 bg-green-50 text-green-800 rounded-lg border border-green-200">
-                            <div className="flex items-center gap-2">
-                               <Bluetooth className="h-4 w-4"/>
-                               <span className='font-medium'>{p.device.name || 'Printer Tanpa Nama'}</span>
-                            </div>
-                            <Button size="sm" variant="ghost" className="text-red-600 hover:text-red-700 hover:bg-red-100 h-7 w-7 p-0" onClick={() => disconnectPrinter(p.device.id)}>
-                                <XCircle className="h-5 w-5"/>
-                            </Button>
-                        </div>
-                    ))
-                ) : (
-                    <Button onClick={connectBluetoothPrinter} variant="outline" className="w-full" disabled={!!btError}>
-                        <Bluetooth className="mr-2 h-4 w-4"/>
-                        Hubungkan ke Printer Baru
-                    </Button>
                 )}
+                {activePrinters.length > 0 && (
+                    <div className="space-y-2">
+                        {activePrinters.map(p => (
+                            <div key={p.device.id} className="flex items-center justify-between p-3 bg-green-50 text-green-800 rounded-lg border border-green-200">
+                                <div className="flex items-center gap-2">
+                                <Bluetooth className="h-4 w-4"/>
+                                <span className='font-medium'>{p.device.name || 'Printer Tanpa Nama'}</span>
+                                </div>
+                                <Button size="sm" variant="ghost" className="text-red-600 hover:text-red-700 hover:bg-red-100 h-7 w-7 p-0" onClick={() => disconnectPrinter(p.device.id)}>
+                                    <XCircle className="h-5 w-5"/>
+                                </Button>
+                            </div>
+                        ))}
+                    </div>
+                )}
+                <Button onClick={connectBluetoothPrinter} variant="outline" className="w-full" disabled={!!btError}>
+                    <Bluetooth className="mr-2 h-4 w-4"/>
+                    Hubungkan Printer Lain
+                </Button>
               </div>
               {btError && (
                 <Alert variant="destructive" className="mt-4">
