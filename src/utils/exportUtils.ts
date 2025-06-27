@@ -74,29 +74,40 @@ export const exportToExcel = (data: any[], filename: string) => {
   URL.revokeObjectURL(url);
 };
 
-// --- FUNGSI TEMPLATE UNTUK BAHAN ---
 export const generateIngredientTemplate = () => {
   const templateData = [
     {
       name: 'Contoh Ayam Potong',
       category: 'Daging',
       unit: 'potong',
-      currentStock: 50,
-      minStock: 10,
+      current_stock: 50,
+      min_stock: 10,
     },
   ];
   exportToCSV(templateData, 'template_import_bahan.csv');
 };
 
-// --- FUNGSI TEMPLATE UNTUK PRODUK ---
+// --- PERBAIKAN: Template sekarang menyertakan varian dan resep ---
 export const generateProductTemplate = () => {
   const templateData = [
     {
-      name: 'Contoh Ayam Goreng',
+      name: 'Nasi Goreng Spesial',
       category: 'Menu Utama',
       unit: 'porsi',
-      minStock: 5,
+      current_stock: 0,
+      min_stock: 5,
+      variants: 'Biasa|Pedas|Ekstra Telur',
+      recipe: 'Nasi:1|Bumbu Nasi Goreng:1|Telur:1|Minyak Goreng:10'
     },
+    {
+      name: 'Kopi Susu',
+      category: 'Minuman',
+      unit: 'gelas',
+      current_stock: 0,
+      min_stock: 10,
+      variants: 'Panas|Dingin',
+      recipe: 'Biji Kopi:15|Susu UHT:100|Gula Aren:20'
+    }
   ];
   exportToCSV(templateData, 'template_import_produk.csv');
 };
