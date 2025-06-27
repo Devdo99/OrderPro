@@ -1,6 +1,6 @@
 // src/utils/printerUtils.ts
 
-import { Order, AppSettings } from '@/types';
+import { Order, AppSettings, BoxOrder } from '@/types';
 
 const ESC = '\x1B'; 
 const GS = '\x1D';  
@@ -64,7 +64,50 @@ export async function generateReceiptBytes(order: Order, settings: AppSettings):
 
   receiptText += BOLD_ON + '*** BUKAN BUKTI PEMBAYARAN ***\n\n' + BOLD_OFF;
   
-  const fullReceiptCommands = INIT_PRINTER + receiptText + PAPER_CUT;
+  const fullReceiptCommands = INIT_PRINTER + receiptText + '\n\n\n' + PAPER_CUT;
+  const encoder = new TextEncoder();
+  return encoder.encode(fullReceiptCommands);
+}
+
+// FUNGSI BARU UNTUK NOTA PESANAN KOTAK (DENGAN PERBAIKAN)
+export async function generateBoxOrderReceiptBytes(order: BoxOrder, settings: AppSettings): Promise<Uint8Array> {
+  const paperWidth = settings.paperSize === '58mm' ? 32 : 48;
+  const separator = '-'.repeat(paperWidth) + '\n';
+  const doubleSeparator = '='.repeat(paperWidth) + '\n';
+
+  let receiptText = '';
+
+  receiptText += ALIGN_CENTER;
+  receiptText += BOLD_ON + "TANDA TERIMA PESANAN\n";
+  receiptText += settings.restaurantName + BOLD_OFF + '\n\n';
+
+  receiptText += ALIGN_LEFT;
+  receiptText += `No: #${order.id.substring(0, 8).toUpperCase()}\n`;
+  receiptText += `Pelanggan: ${order.customer_name}\n`;
+  receiptText += `Tgl Ambil : ${new Date(order.pickup_date).toLocaleDateString('id-ID', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}\n`;
+  receiptText += doubleSeparator;
+  
+  receiptText += BOLD_ON + 'Detail Pesanan:\n' + BOLD_OFF;
+  // **PERBAIKAN DI SINI**
+  order.items.forEach(item => {
+    receiptText += `${item.quantity}x ${item.productName}\n`;
+  });
+  receiptText += '\n';
+
+  receiptText += BOLD_ON + 'Catatan:\n' + BOLD_OFF;
+  receiptText += `${order.notes || 'Tidak ada catatan.'}\n`;
+  receiptText += doubleSeparator;
+
+  receiptText += BOLD_ON + 'Pembayaran:\n' + BOLD_OFF;
+  receiptText += `Metode: ${order.payment_method}\n`;
+  receiptText += `Status: ${order.payment_status}\n\n`;
+  
+  receiptText += ALIGN_CENTER;
+  if (settings.receiptFooter && settings.receiptFooter.trim() !== '') {
+    receiptText += settings.receiptFooter + '\n\n';
+  }
+  
+  const fullReceiptCommands = INIT_PRINTER + receiptText + '\n\n\n' + PAPER_CUT;
   const encoder = new TextEncoder();
   return encoder.encode(fullReceiptCommands);
 }

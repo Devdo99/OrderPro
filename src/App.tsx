@@ -20,6 +20,8 @@ const Settings = lazy(() => import("./pages/Settings"));
 const Ingredients = lazy(() => import("./pages/Ingredients"));
 const Products = lazy(() => import("./pages/Products"));
 const AuthPage = lazy(() => import("./pages/AuthPage"));
+const BoxOrdersPage = lazy(() => import('./pages/BoxOrdersPage'));
+const BoxOrderForm = lazy(() => import('./pages/BoxOrderForm')); // <-- Impor Halaman Baru
 
 const LoadingScreen = () => (
     <div className="flex-1 flex items-center justify-center h-screen">
@@ -41,6 +43,9 @@ const ProtectedRoutes = () => {
                     <Route path="/settings" element={<Settings />} />
                     <Route path="/ingredients" element={<Ingredients />} />
                     <Route path="/products" element={<Products />} />
+                    <Route path="/box-orders" element={<BoxOrdersPage />} />
+                    {/* DAFTARKAN RUTE BARU DI SINI */}
+                    <Route path="/box-orders/new" element={<BoxOrderForm />} /> 
                     <Route path="/stock" element={<Navigate to="/products" replace />} />
                     <Route path="*" element={<NotFound />} />
                 </Routes>
@@ -61,10 +66,8 @@ function AppRouter() {
         <BrowserRouter future={{ v7_startTransition: true }}>
             <Routes>
                 {session ? (
-                    // Jika ada sesi (sudah login), tampilkan rute yang dilindungi
                     <Route path="/*" element={<ProtectedRoutes />} />
                 ) : (
-                    // Jika tidak ada sesi, semua rute akan mengarah ke halaman login
                     <Route path="*" element={<Suspense fallback={<LoadingScreen/>}><AuthPage /></Suspense>} />
                 )}
             </Routes>

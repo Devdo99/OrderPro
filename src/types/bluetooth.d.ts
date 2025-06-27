@@ -1,3 +1,4 @@
+// src/types/bluetooth.d.ts
 
 // Web Bluetooth API type definitions
 interface BluetoothDevice {
@@ -14,6 +15,7 @@ interface BluetoothRemoteGATTServer {
   connect(): Promise<BluetoothRemoteGATTServer>;
   disconnect(): void;
   getPrimaryService(service: BluetoothServiceUUID): Promise<BluetoothRemoteGATTService>;
+  getPrimaryServices(service?: BluetoothServiceUUID): Promise<BluetoothRemoteGATTService[]>; // Tambahkan ini
 }
 
 interface BluetoothRemoteGATTService {
@@ -21,6 +23,7 @@ interface BluetoothRemoteGATTService {
   uuid: string;
   isPrimary: boolean;
   getCharacteristic(characteristic: BluetoothCharacteristicUUID): Promise<BluetoothRemoteGATTCharacteristic>;
+  getCharacteristics(characteristic?: BluetoothCharacteristicUUID): Promise<BluetoothRemoteGATTCharacteristic[]>; // <-- BARIS INI YANG DIPERBAIKI
 }
 
 interface BluetoothRemoteGATTCharacteristic {

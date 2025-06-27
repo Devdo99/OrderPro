@@ -11,6 +11,49 @@ export type Json =
 export interface Database {
   public: {
     Tables: {
+      box_orders: {
+        Row: {
+          id: string
+          customer_name: string
+          customer_phone: string | null // <-- TAMBAHKAN INI
+          items: Json | null
+          order_date: string
+          pickup_date: string
+          payment_status: "lunas" | "dp" | "belum_bayar"
+          payment_method: "cash" | "transfer" | "lainnya"
+          status: 'Baru' | 'Diproses' | 'Selesai' | 'Dibatalkan'
+          notes: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          customer_name: string
+          customer_phone?: string | null // <-- TAMBAHKAN INI
+          items?: Json | null
+          order_date?: string
+          pickup_date: string
+          payment_status: "lunas" | "dp" | "belum_bayar"
+          payment_method: "cash" | "transfer" | "lainnya"
+          status: 'Baru' | 'Diproses' | 'Selesai' | 'Dibatalkan'
+          notes?: string | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          customer_name?: string
+          customer_phone?: string | null // <-- TAMBAHKAN INI
+          items?: Json | null
+          order_date?: string
+          pickup_date?: string
+          payment_status?: "lunas" | "dp" | "belum_bayar"
+          payment_method?: "cash" | "transfer" | "lainnya"
+          status?: 'Baru' | 'Diproses' | 'Selesai' | 'Dibatalkan'
+          notes?: string | null
+          created_at?: string
+        }
+        Relationships: []
+      }
+      // ... sisa definisi tabel lain tidak perlu diubah
       orders: {
         Row: {
           created_at: string
@@ -53,7 +96,6 @@ export interface Database {
         }
         Relationships: []
       }
-      // --- PENAMBAHAN DEFINISI TABEL PROFILES DI SINI ---
       profiles: {
         Row: {
           id: string

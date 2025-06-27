@@ -78,3 +78,23 @@ export interface AppSettings {
   packageCategories: string[];
   reportsPassword?: string;
 }
+
+export interface BoxOrderItem {
+  productId: string;
+  productName: string;
+  quantity: number;
+}
+
+export interface BoxOrder {
+  id: string;
+  customer_name: string;
+  customer_phone?: string; // <-- TAMBAHKAN INI
+  items: BoxOrderItem[];
+  order_date: string;
+  pickup_date: string;
+  payment_status: 'lunas' | 'dp' | 'belum_bayar';
+  payment_method: 'cash' | 'transfer' | 'lainnya';
+  status: 'Baru' | 'Diproses' | 'Selesai' | 'Dibatalkan';
+  notes?: string;
+  created_at: string;
+}

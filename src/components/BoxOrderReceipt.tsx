@@ -1,0 +1,87 @@
+// src/components/BoxOrderReceipt.tsx
+
+import { useState, useEffect } from 'react';
+import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import { BoxOrder } from "@/types";
+import { useApp } from '@/contexts/AppContext';
+import { Printer, Loader2 } from 'lucide-react';
+import { format } from 'date-fns';
+import { id } from 'date-fns/locale';
+
+interface BoxOrderReceiptProps {
+  order: BoxOrder | null;
+  isOpen: boolean;
+  onOpenChange: (open: boolean) => void;
+}
+
+export function BoxOrderReceipt({ order, isOpen, onOpenChange }: BoxOrderReceiptProps) {
+  const { settings, printBoxOrderReceipt } = useApp();
+  const [isPrinting, setIsPrinting] = useState(false);
+  const [receiptText, setReceiptText] = useState('');
+
+  useEffect(() => {
+    if (order && settings) {
+      const paperWidth = settings.paperSize === '58mm' ? 32 : 48;
+      const separator = '-'.repeat(paperWidth);
+      const centered = (str: string) => (' '.repeat(Math.max(0, Math.floor((paperWidth - str.length) / 2))) + str);
+
+      let text = '';
+      text += `${centered(settings.restaurantName)}\n`;
+      text += `${centered('TANDA TERIMA PESANAN KOTAK')}\n`;
+      text += `${separator}\n`;
+      text += `No Pesanan: #${order.id.substring(0, 8).toUpperCase()}\n`;
+      text += `Pelanggan : ${order.customer_name}\n`;
+      text += `Tgl Ambil  : ${format(new Date(order.pickup_date), 'dd MMM yyyy', { locale: id })}\n`;
+      text += `${separator}\n`;
+      text += `Detail Pesanan:\n`;
+      // **PERBAIKAN DI SINI**
+      order.items.forEach(item => {
+        text += `${item.quantity}x ${item.productName}\n`;
+      });
+      text += `\n${separator}\n`;
+      text += `Status     : ${order.status}\n`;
+      text += `Pembayaran : ${order.payment_status} (${order.payment_method})\n`;
+      text += `${separator}\n`;
+      text += `Catatan:\n`;
+      text += `${order.notes || 'Tidak ada catatan.'}\n\n`;
+      text += `${centered('Terima Kasih!')}\n`;
+      setReceiptText(text);
+    }
+  }, [order, settings]);
+
+  const handlePrint = async () => {
+    if (!order) return;
+    setIsPrinting(true);
+    await printBoxOrderReceipt(order);
+    setIsPrinting(false);
+    onOpenChange(false);
+  };
+
+  if (!order) return null;
+
+  return (
+    <Dialog open={isOpen} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Tanda Terima Pesanan</DialogTitle>
+          <DialogDescription>
+            Tanda terima untuk pesanan a.n. {order.customer_name}.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="bg-gray-100 p-4 rounded-md my-4 max-h-96 overflow-y-auto">
+            <pre className="font-mono text-xs text-black whitespace-pre-wrap">
+                {receiptText}
+            </pre>
+        </div>
+        <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={() => onOpenChange(false)}>Tutup</Button>
+            <Button onClick={handlePrint} disabled={isPrinting}>
+                {isPrinting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Printer className="mr-2 h-4 w-4" />}
+                Cetak
+            </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
