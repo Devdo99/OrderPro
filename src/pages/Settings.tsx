@@ -9,35 +9,14 @@ import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useApp } from '@/contexts/AppContext';
-import { Save, Loader2, Users, Plus, Trash2, Bluetooth, AlertCircle, Printer } from 'lucide-react';
+import { Save, Loader2, Users, Plus, Trash2, Bluetooth, AlertCircle, Printer, XCircle } from 'lucide-react';
 import { toast } from '@/components/ui/use-toast';
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 
 export default function Settings() {
   const appContext = useApp();
   
-  const [formData, setFormData] = useState(appContext?.settings);
-  const [newStaffName, setNewStaffName] = useState('');
-  const [isConnecting, setIsConnecting] = useState(false);
-  const [btError, setBtError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!navigator.bluetooth) {
-        setBtError("Web Bluetooth API tidak didukung di browser ini. Silakan gunakan Google Chrome atau Microsoft Edge.");
-    } else if (!window.isSecureContext) {
-        setBtError("Fitur Bluetooth hanya berfungsi pada koneksi aman. Silakan akses aplikasi ini melalui alamat 'localhost', bukan alamat IP.");
-    } else {
-        setBtError(null);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (appContext?.settings) {
-      setFormData(appContext.settings);
-    }
-  }, [appContext?.settings]);
-
-  if (!appContext || appContext.isLoading || !formData) {
+  if (!appContext) {
     return (
       <div className="flex h-full w-full items-center justify-center p-8">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
@@ -46,9 +25,36 @@ export default function Settings() {
     );
   }
 
-  const { settings, updateSettings, addStaff, removeStaff, connectBluetoothPrinter, disconnectPrinter, activePrinters } = appContext;
+  const { 
+    settings, 
+    updateSettings, 
+    addStaff, 
+    removeStaff, 
+    connectBluetoothPrinter, 
+    disconnectPrinter, 
+    activePrinters, 
+    isReconnectingPrinter 
+  } = appContext;
   
-  const currentStaffList = formData.staffList || [];
+  const [formData, setFormData] = useState(appContext.settings);
+  const [newStaffName, setNewStaffName] = useState('');
+  const [btError, setBtError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!navigator.bluetooth) {
+        setBtError("Web Bluetooth tidak didukung di browser ini. Gunakan Google Chrome.");
+    } else if (!window.isSecureContext) {
+        setBtError("Fitur Bluetooth hanya berfungsi di koneksi aman (localhost atau https).");
+    } else {
+        setBtError(null);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (appContext.settings) {
+      setFormData(appContext.settings);
+    }
+  }, [appContext.settings]);
 
   const handleSave = () => {
     updateSettings(formData);
@@ -56,7 +62,7 @@ export default function Settings() {
   
   const handleAddStaff = (e: React.FormEvent) => {
     e.preventDefault();
-    if (newStaffName.trim() && !currentStaffList.includes(newStaffName.trim())) {
+    if (newStaffName.trim() && !formData.staffList.includes(newStaffName.trim())) {
       addStaff(newStaffName.trim());
       setNewStaffName('');
     }
@@ -65,16 +71,9 @@ export default function Settings() {
   const handleRemoveStaff = (nameToRemove: string) => {
     removeStaff(nameToRemove);
   };
-
-  const handleBluetoothConnect = async () => {
-    setIsConnecting(true);
-    await connectBluetoothPrinter();
-    setIsConnecting(false);
-  };
-
+  
   return (
     <div className="space-y-6 max-w-4xl mx-auto p-4">
-      {/* Kartu Informasi Restoran */}
       <Card>
         <CardHeader><CardTitle>Informasi Restoran</CardTitle></CardHeader>
         <CardContent className="space-y-4">
@@ -85,11 +84,9 @@ export default function Settings() {
         </CardContent>
       </Card>
       
-      {/* Kartu Manajemen Staff */}
       <Card>
         <CardHeader><CardTitle className="flex items-center gap-2"><Users className="h-5 w-5" />Manajemen Staff</CardTitle></CardHeader>
         <CardContent className="space-y-4">
-            {/* --- UI YANG DIKEMBALIKAN --- */}
             <div>
               <Label htmlFor="defaultStaff">Staff Default</Label>
               <Select
@@ -98,19 +95,19 @@ export default function Settings() {
               >
                 <SelectTrigger id="defaultStaff"><SelectValue /></SelectTrigger>
                 <SelectContent>
-                  {currentStaffList.map(staff => <SelectItem key={staff} value={staff}>{staff}</SelectItem>)}
+                  {formData.staffList.map(staff => <SelectItem key={staff} value={staff}>{staff}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>
 
             <div className="space-y-2">
               <Label>Daftar Staff</Label>
-              {currentStaffList.length > 0 ? (
+              {formData.staffList.length > 0 ? (
                 <div className="space-y-2 rounded-lg border p-3">
-                  {currentStaffList.map(staff => (
+                  {formData.staffList.map(staff => (
                     <div key={staff} className="flex items-center justify-between">
                       <span>{staff}</span>
-                      <Button size="sm" variant="ghost" onClick={() => handleRemoveStaff(staff)} disabled={currentStaffList.length <= 1}>
+                      <Button size="sm" variant="ghost" onClick={() => handleRemoveStaff(staff)} disabled={formData.staffList.length <= 1}>
                         <Trash2 className="h-4 w-4 text-red-500" />
                       </Button>
                     </div>
@@ -131,11 +128,9 @@ export default function Settings() {
               </div>
               <Button type="submit"><Plus className="mr-2 h-4 w-4"/> Tambah</Button>
             </form>
-            {/* --- AKHIR DARI UI YANG DIKEMBALIKAN --- */}
         </CardContent>
       </Card>
 
-      {/* Kartu Pengaturan Cetak */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2"><Printer className="h-5 w-5" />Pengaturan Cetak</CardTitle>
@@ -160,10 +155,6 @@ export default function Settings() {
                     </SelectContent>
                 </Select>
             </div>
-            <div>
-                <Label htmlFor="printCopies">Jumlah Salinan Cetak</Label>
-                <Input id="printCopies" type="number" min={1} value={formData.printCopies} onChange={(e) => setFormData(p => ({...p!, printCopies: Number(e.target.value)}))} />
-            </div>
             <div className="flex items-center justify-between rounded-lg border p-3">
                <Label htmlFor="autoPrint" className="flex flex-col gap-1">
                  <span>Cetak Struk Otomatis</span>
@@ -171,22 +162,34 @@ export default function Settings() {
                </Label>
                <Switch id="autoPrint" checked={formData.autoPrintReceipt} onCheckedChange={(checked) => setFormData(p => ({ ...p!, autoPrintReceipt: checked }))} />
            </div>
+           
            <div>
               <Label>Printer Bluetooth</Label>
               <div className='space-y-2 mt-2'>
-                {activePrinters.length > 0 && (
+                {isReconnectingPrinter ? (
+                   <div className="flex items-center justify-center p-3 bg-gray-100 text-gray-800 rounded-lg border">
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin"/>
+                      <span>Mencoba menyambung ulang ke printer...</span>
+                   </div>
+                ) : activePrinters.length > 0 ? (
                     activePrinters.map(p => (
-                        <div key={p.device.id} className="flex items-center justify-between p-2 bg-green-50 text-green-800 rounded-lg border border-green-200">
-                            <span className='font-medium'>{p.device.name || 'Printer Tanpa Nama'}</span>
-                            <Button size="sm" variant="destructive" onClick={() => disconnectPrinter(p.device.id)}>Putuskan</Button>
+                        <div key={p.device.id} className="flex items-center justify-between p-3 bg-green-50 text-green-800 rounded-lg border border-green-200">
+                            <div className="flex items-center gap-2">
+                               <Bluetooth className="h-4 w-4"/>
+                               <span className='font-medium'>{p.device.name || 'Printer Tanpa Nama'}</span>
+                            </div>
+                            <Button size="sm" variant="ghost" className="text-red-600 hover:text-red-700 hover:bg-red-100 h-7 w-7 p-0" onClick={() => disconnectPrinter(p.device.id)}>
+                                <XCircle className="h-5 w-5"/>
+                            </Button>
                         </div>
                     ))
+                ) : (
+                    <Button onClick={connectBluetoothPrinter} variant="outline" className="w-full" disabled={!!btError}>
+                        <Bluetooth className="mr-2 h-4 w-4"/>
+                        Hubungkan ke Printer Baru
+                    </Button>
                 )}
               </div>
-              <Button onClick={handleBluetoothConnect} variant="outline" className="w-full mt-2" disabled={isConnecting || !!btError}>
-                  {isConnecting ? <Loader2 className="mr-2 h-4 w-4 animate-spin"/> : <Bluetooth className="mr-2 h-4 w-4"/>}
-                  Hubungkan Printer Baru
-              </Button>
               {btError && (
                 <Alert variant="destructive" className="mt-4">
                   <AlertCircle className="h-4 w-4" />
@@ -198,7 +201,6 @@ export default function Settings() {
         </CardContent>
       </Card>
       
-      {/* Tombol Simpan */}
       <div className="flex justify-center">
         <Button onClick={handleSave} size="lg"><Save className="mr-2" /> Simpan Semua Pengaturan</Button>
       </div>

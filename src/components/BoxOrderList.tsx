@@ -7,7 +7,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Badge } from "@/components/ui/badge";
 import { Button } from './ui/button';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from './ui/dropdown-menu';
-import { Printer, MoreHorizontal, Package, Phone } from 'lucide-react'; // <-- TAMBAHKAN IKON PHONE
+import { Printer, MoreHorizontal, Package, Phone } from 'lucide-react';
 import { format } from 'date-fns';
 import { id } from 'date-fns/locale';
 import { BoxOrderReceipt } from './BoxOrderReceipt';
@@ -68,10 +68,13 @@ export function BoxOrderList({ orders }: BoxOrderListProps) {
               <TableCell className="font-medium">{format(new Date(order.pickup_date), 'dd MMM yy', { locale: id })}</TableCell>
               <TableCell>
                 <div className="font-semibold">{order.customer_name}</div>
-                {/* TAMPILKAN NOMOR TELEPON JIKA ADA */}
                 {order.customer_phone && <div className="text-xs text-muted-foreground flex items-center gap-1"><Phone className="h-3 w-3" />{order.customer_phone}</div>}
                 <div className="text-xs text-muted-foreground pt-1">
-                  {order.items?.map(it => `${it.quantity}x ${it.productName}`).join(', ') || 'Tidak ada item'}
+                  {/* **PERBAIKAN KEAMANAN DI SINI** */}
+                  {order.items && Array.isArray(order.items)
+                    ? order.items.map(it => `${it.quantity}x ${it.productName}`).join(', ')
+                    : 'Tidak ada item detail'
+                  }
                 </div>
               </TableCell>
               <TableCell>{getOrderStatusBadge(order.status)}</TableCell>

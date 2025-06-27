@@ -69,7 +69,6 @@ export async function generateReceiptBytes(order: Order, settings: AppSettings):
   return encoder.encode(fullReceiptCommands);
 }
 
-// FUNGSI BARU UNTUK NOTA PESANAN KOTAK (DENGAN PERBAIKAN)
 export async function generateBoxOrderReceiptBytes(order: BoxOrder, settings: AppSettings): Promise<Uint8Array> {
   const paperWidth = settings.paperSize === '58mm' ? 32 : 48;
   const separator = '-'.repeat(paperWidth) + '\n';
@@ -84,14 +83,20 @@ export async function generateBoxOrderReceiptBytes(order: BoxOrder, settings: Ap
   receiptText += ALIGN_LEFT;
   receiptText += `No: #${order.id.substring(0, 8).toUpperCase()}\n`;
   receiptText += `Pelanggan: ${order.customer_name}\n`;
+  if (order.customer_phone) {
+    receiptText += `Telepon  : ${order.customer_phone}\n`;
+  }
   receiptText += `Tgl Ambil : ${new Date(order.pickup_date).toLocaleDateString('id-ID', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}\n`;
   receiptText += doubleSeparator;
   
   receiptText += BOLD_ON + 'Detail Pesanan:\n' + BOLD_OFF;
-  // **PERBAIKAN DI SINI**
-  order.items.forEach(item => {
-    receiptText += `${item.quantity}x ${item.productName}\n`;
-  });
+  
+  // **PERBAIKAN KEAMANAN DI SINI**
+  if (order.items && Array.isArray(order.items)) {
+    order.items.forEach(item => {
+      receiptText += `${item.quantity} x ${item.productName}\n`;
+    });
+  }
   receiptText += '\n';
 
   receiptText += BOLD_ON + 'Catatan:\n' + BOLD_OFF;

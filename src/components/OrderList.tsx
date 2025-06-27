@@ -8,7 +8,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useApp } from '@/contexts/AppContext';
 import { Order } from '@/types';
-import { Clock, Package, Search, User, UserCog } from 'lucide-react';
+import { Clock, Package, Search, User, UserCog, Printer, Loader2 } from 'lucide-react'; // Impor ikon yang dibutuhkan
 import { toast } from '@/hooks/use-toast';
 import ReceiptPreview from '@/components/ReceiptPreview';
 import OrderTimer from '@/components/OrderTimer';
@@ -21,13 +21,16 @@ import {
   PaginationLink,
   PaginationNext,
   PaginationPrevious,
-} from "@/components/ui/pagination"
+} from "@/components/ui/pagination";
 
 export default function OrderList() {
-  const { orders, updateOrderStatus, isLoading } = useApp();
+  // Ambil fungsi printReceipt dari AppContext
+  const { orders, updateOrderStatus, isLoading, printReceipt } = useApp(); 
   const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'completed' | 'cancelled'>('all');
   const [searchTerm, setSearchTerm] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
+  // State baru untuk melacak order yang sedang dicetak
+  const [printingOrderId, setPrintingOrderId] = useState<string | null>(null); 
   const ordersPerPage = 5;
 
   const filteredOrders = useMemo(() => {
@@ -42,13 +45,13 @@ export default function OrderList() {
             order.orderNumber,
             order.customer,
             order.staffName,
-            order.tableNumber // Pencarian tetap bisa berdasarkan string gabungan
+            order.tableNumber
           ].join(' ').toLowerCase();
           return searchIn.includes(lowerCaseSearch);
         }
         return true;
       })
-      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   }, [orders, statusFilter, searchTerm]);
 
   const indexOfLastOrder = currentPage * ordersPerPage;
@@ -62,6 +65,13 @@ export default function OrderList() {
       title: 'Status Order Diperbarui',
       description: `Status order berhasil diubah ke ${newStatus}.`,
     });
+  };
+  
+  // **FUNGSI BARU UNTUK CETAK LANGSUNG**
+  const handleDirectPrint = async (order: Order) => {
+    setPrintingOrderId(order.id); // Set order ID yang sedang diproses untuk menampilkan loader
+    await printReceipt(order);
+    setPrintingOrderId(null); // Reset setelah selesai
   };
 
   const handlePageChange = (page: number) => {
@@ -149,13 +159,13 @@ export default function OrderList() {
                     <div className="flex items-center gap-2"><UserCog className="h-4 w-4" />Staff: {order.staffName || '-'}</div>
                     <div className="flex items-center gap-2"><User className="h-4 w-4" />Pelanggan: {order.customer || '-'}</div>
                     {order.tableNumber && <div className="flex items-center gap-2"><span>🍽️</span>Meja: {order.tableNumber}</div>}
-                    <div className="flex items-center gap-2"><Clock className="h-4 w-4" />Waktu: {order.createdAt.toLocaleString('id-ID')}</div>
+                    <div className="flex items-center gap-2"><Clock className="h-4 w-4" />Waktu: {new Date(order.createdAt).toLocaleString('id-ID')}</div>
                   </div>
 
                   {order.status === 'pending' && (
                     <div className="flex items-center gap-2 pt-1 text-sm">
                         <span className="font-medium text-gray-700">Waktu Berjalan:</span>
-                        <OrderTimer startTime={order.createdAt} />
+                        <OrderTimer startTime={new Date(order.createdAt)} />
                     </div>
                   )}
 
@@ -178,14 +188,30 @@ export default function OrderList() {
                   )}
                 </div>
                 
-                <div className="flex flex-row md:flex-col gap-2 shrink-0">
+                <div className="flex flex-row items-start md:flex-col gap-2 shrink-0">
                   {order.status === 'pending' && (
                     <>
                       <Button size="sm" onClick={() => handleUpdateStatus(order.id, 'completed')} className="w-full">Selesai</Button>
                       <Button size="sm" variant="destructive" onClick={() => handleUpdateStatus(order.id, 'cancelled')} className="w-full">Batal</Button>
                     </>
                   )}
-                  <ReceiptPreview order={order} />
+                   <div className="flex md:flex-col gap-2 w-full">
+                      <ReceiptPreview order={order} />
+                      <Button 
+                        size="sm" 
+                        variant="outline"
+                        className="flex-1 sm:flex-none"
+                        onClick={() => handleDirectPrint(order)}
+                        disabled={printingOrderId === order.id}
+                      >
+                        {printingOrderId === order.id ? (
+                            <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                        ) : (
+                            <Printer className="h-4 w-4 mr-1" />
+                        )}
+                        Cetak
+                      </Button>
+                   </div>
                 </div>
               </div>
             </CardContent>

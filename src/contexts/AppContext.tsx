@@ -30,6 +30,7 @@ interface AppContextType {
     activePrinters: ActivePrinter[];
     isLoading: boolean;
     isAppDataLoading: boolean;
+    isReconnectingPrinter: boolean;
     addStock: (stockData: Omit<StockItem, 'id' | 'created_at' | 'last_updated'>) => Promise<void>;
     updateStock: (id: string, updates: Partial<Omit<StockItem, 'id' | 'created_at' | 'last_updated'>>) => Promise<void>;
     deleteStock: (id: string) => Promise<void>;
@@ -60,6 +61,8 @@ const defaultSettings: AppSettings = { restaurantName: 'RestoranKu', address: 'J
 const mapOrderRowToOrder = (row: OrderRow): Order => ({ id: row.id, orderNumber: row.order_number, createdAt: new Date(row.created_at), items: (row.items as unknown as OrderItem[]) || [], totalItems: row.total_items || 0, status: (row.status as Order['status']) || 'pending', customer: row.customer || undefined, tableNumber: row.table_number || undefined, staffName: row.staff_name || undefined, notes: row.notes || undefined, orderType: row.order_type || undefined, });
 const mapStockRowToStockItem = (row: StockRow): StockItem => ({ ...row, id: row.id, created_at: row.created_at, last_updated: row.last_updated, name: row.name, type: row.type as 'BAHAN' | 'PRODUK', category: row.category || '', unit: row.unit || '', recipe: (row.recipe as unknown as RecipeItem[]) || null, variants: (row.variants as unknown as ProductVariant[]) || null, current_stock: row.current_stock, min_stock: row.min_stock });
 
+const SAVED_PRINTER_ID_KEY = 'orderpal-saved-printer-id';
+
 export const AppProvider = ({ children }: { children: ReactNode }) => {
   const [session, setSession] = useState<Session | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
@@ -71,6 +74,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
   const [boxOrders, setBoxOrders] = useState<BoxOrder[]>([]);
   const [tables, setTables] = useState<Table[]>([]);
   const [activePrinters, setActivePrinters] = useState<ActivePrinter[]>([]);
+  const [isReconnectingPrinter, setIsReconnectingPrinter] = useState(true);
 
   const fetchAppData = useCallback(async () => {
     setIsAppDataLoading(true);
@@ -216,58 +220,99 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
   const updateSettings = async (updates: Partial<AppSettings>) => { const newSettings = { ...settings, ...updates }; await supabase.from('settings').update({ data: newSettings as any }).eq('id', 1); };
   const addStaff = async (name: string) => { if (!name.trim()) return; const newStaffList = [...(settings.staffList || []), name.trim()]; await updateSettings({ staffList: newStaffList }); };
   const removeStaff = async (name: string) => { if ((settings.staffList || []).length <= 1) { toast({ title: "Tidak bisa menghapus", description: "Harus ada minimal satu staff.", variant: "destructive" }); return; } const newStaffList = (settings.staffList || []).filter(s => s !== name); const newSettings: Partial<AppSettings> = { staffList: newStaffList }; if (settings.defaultStaffName === name) newSettings.defaultStaffName = newStaffList[0] || ''; await updateSettings(newSettings); };
-  const disconnectPrinter = useCallback((printerId: string) => { setActivePrinters(prev => prev.filter(p => p.device.id !== printerId)); }, []);
   const clearTable = async (orderId: string) => { await supabase.from('orders').update({ status: 'archived' as any }).eq('id', orderId); };
   
+  const _connectToDeviceAndSetState = useCallback(async (device: BluetoothDevice) => {
+    if (!device.gatt) {
+      throw new Error("GATT Server tidak ditemukan pada perangkat.");
+    }
+    const server = await device.gatt.connect();
+    const services = await server.getPrimaryServices();
+    let writableCharacteristic: BluetoothRemoteGATTCharacteristic | null = null;
+    
+    for (const service of services) {
+      const characteristics = await service.getCharacteristics();
+      for (const characteristic of characteristics) {
+        if (characteristic.properties.write || characteristic.properties.writeWithoutResponse) {
+          writableCharacteristic = characteristic;
+          break;
+        }
+      }
+      if (writableCharacteristic) break;
+    }
+
+    if (!writableCharacteristic) {
+      throw new Error("Tidak ditemukan characteristic yang bisa ditulis pada printer ini.");
+    }
+
+    const newPrinter: ActivePrinter = { device, server, characteristic: writableCharacteristic };
+    setActivePrinters([newPrinter]);
+    localStorage.setItem(SAVED_PRINTER_ID_KEY, device.id);
+    return true;
+  }, []);
+
   const connectBluetoothPrinter = async (): Promise<boolean> => {
     if (!navigator.bluetooth) {
       toast({ title: "Web Bluetooth Tidak Tersedia", variant: "destructive" });
       return false;
     }
-  
     try {
-      const device = await navigator.bluetooth.requestDevice({ acceptAllDevices: true, optionalServices: ['000018f0-0000-1000-8000-00805f9b34fb'] });
-      if (!device.gatt) {
-        throw new Error("GATT Server tidak ditemukan.");
-      }
-  
-      const server = await device.gatt.connect();
-      const services = await server.getPrimaryServices();
-      
-      let writableCharacteristic: BluetoothRemoteGATTCharacteristic | null = null;
-      
-      for (const service of services) {
-        const characteristics = await service.getCharacteristics();
-        for (const characteristic of characteristics) {
-          if (characteristic.properties.write || characteristic.properties.writeWithoutResponse) {
-            writableCharacteristic = characteristic;
-            break; 
-          }
-        }
-        if (writableCharacteristic) break;
-      }
-
-      if (!writableCharacteristic) {
-        throw new Error("Tidak ditemukan characteristic yang bisa ditulis pada printer ini.");
-      }
-  
-      const newPrinter: ActivePrinter = { device, server, characteristic: writableCharacteristic };
-  
-      setActivePrinters(prev => {
-        if (prev.find(p => p.device.id === device.id)) return prev;
-        return [...prev, newPrinter];
+      const device = await navigator.bluetooth.requestDevice({
+        filters: [{ services: ['000018f0-0000-1000-8000-00805f9b34fb'] }],
+        acceptAllDevices: false,
       });
-  
-      toast({ title: "Printer Terhubung", description: `Berhasil terhubung ke ${device.name || 'printer tanpa nama'}` });
+      await _connectToDeviceAndSetState(device);
+      toast({ title: "Printer Terhubung", description: `Berhasil terhubung ke ${device.name || 'printer'}` });
       return true;
-  
     } catch (error: any) {
       if (error.name !== 'NotFoundError') {
-           toast({ title: "Koneksi Gagal", description: error.message, variant: "destructive" });
+        toast({ title: "Koneksi Gagal", description: error.message, variant: "destructive" });
       }
       return false;
     }
   };
+  
+  const disconnectPrinter = useCallback((printerId: string) => {
+    const printerToDisconnect = activePrinters.find(p => p.device.id === printerId);
+    if (printerToDisconnect && printerToDisconnect.server.connected) {
+      printerToDisconnect.server.disconnect();
+    }
+    setActivePrinters([]);
+    localStorage.removeItem(SAVED_PRINTER_ID_KEY);
+    toast({ title: "Koneksi Printer Diputus" });
+  }, [activePrinters]);
+
+  useEffect(() => {
+    const savedPrinterId = localStorage.getItem(SAVED_PRINTER_ID_KEY);
+    if (!savedPrinterId) {
+      setIsReconnectingPrinter(false);
+      return;
+    };
+
+    const reconnect = async () => {
+      if (!navigator.bluetooth?.getDevices) {
+        setIsReconnectingPrinter(false);
+        return;
+      }
+      
+      console.log("Mencoba menyambung ulang ke printer...");
+      const permittedDevices = await navigator.bluetooth.getDevices();
+      const savedDevice = permittedDevices.find(d => d.id === savedPrinterId);
+
+      if (savedDevice) {
+        try {
+          await _connectToDeviceAndSetState(savedDevice);
+          toast({ title: "Printer Tersambung Otomatis", description: `Terhubung kembali ke ${savedDevice.name}` });
+        } catch (error) {
+          console.error("Gagal menyambung ulang otomatis:", error);
+          localStorage.removeItem(SAVED_PRINTER_ID_KEY);
+        }
+      }
+      setIsReconnectingPrinter(false);
+    };
+
+    reconnect();
+  }, [_connectToDeviceAndSetState]);
     
   const printReceipt = async (order: Order): Promise<boolean> => {
       if (activePrinters.length === 0) {
@@ -321,7 +366,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
 
   const value: AppContextType = {
     isLoading, isAppDataLoading, session, profile, stocks, orders, boxOrders, tables, settings, staffList: settings.staffList || [],
-    activePrinters, addStock, updateStock, deleteStock, bulkImportStocks, addOrder, updateOrderStatus,
+    activePrinters, isReconnectingPrinter, addStock, updateStock, deleteStock, bulkImportStocks, addOrder, updateOrderStatus,
     updateBoxOrderStatus,
     updateSettings, addStaff, removeStaff, printReceipt, printBoxOrderReceipt, connectBluetoothPrinter, disconnectPrinter,
     getProducibleQuantity, clearTable, transferTable,

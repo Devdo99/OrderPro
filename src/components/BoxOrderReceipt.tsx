@@ -21,7 +21,8 @@ export function BoxOrderReceipt({ order, isOpen, onOpenChange }: BoxOrderReceipt
   const [receiptText, setReceiptText] = useState('');
 
   useEffect(() => {
-    if (order && settings) {
+    // **PERBAIKAN KEAMANAN DI SINI**
+    if (order && settings && order.items && Array.isArray(order.items)) {
       const paperWidth = settings.paperSize === '58mm' ? 32 : 48;
       const separator = '-'.repeat(paperWidth);
       const centered = (str: string) => (' '.repeat(Math.max(0, Math.floor((paperWidth - str.length) / 2))) + str);
@@ -32,13 +33,17 @@ export function BoxOrderReceipt({ order, isOpen, onOpenChange }: BoxOrderReceipt
       text += `${separator}\n`;
       text += `No Pesanan: #${order.id.substring(0, 8).toUpperCase()}\n`;
       text += `Pelanggan : ${order.customer_name}\n`;
+      if (order.customer_phone) {
+        text += `Telepon   : ${order.customer_phone}\n`;
+      }
       text += `Tgl Ambil  : ${format(new Date(order.pickup_date), 'dd MMM yyyy', { locale: id })}\n`;
       text += `${separator}\n`;
       text += `Detail Pesanan:\n`;
-      // **PERBAIKAN DI SINI**
+      
       order.items.forEach(item => {
-        text += `${item.quantity}x ${item.productName}\n`;
+        text += `${item.quantity} x ${item.productName}\n`;
       });
+
       text += `\n${separator}\n`;
       text += `Status     : ${order.status}\n`;
       text += `Pembayaran : ${order.payment_status} (${order.payment_method})\n`;

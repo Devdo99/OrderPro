@@ -1,5 +1,4 @@
 // src/integrations/supabase/types.ts
-
 export type Json =
   | string
   | number
@@ -15,7 +14,7 @@ export interface Database {
         Row: {
           id: string
           customer_name: string
-          customer_phone: string | null // <-- TAMBAHKAN INI
+          customer_phone: string | null
           items: Json | null
           order_date: string
           pickup_date: string
@@ -28,7 +27,7 @@ export interface Database {
         Insert: {
           id?: string
           customer_name: string
-          customer_phone?: string | null // <-- TAMBAHKAN INI
+          customer_phone?: string | null
           items?: Json | null
           order_date?: string
           pickup_date: string
@@ -41,7 +40,7 @@ export interface Database {
         Update: {
           id?: string
           customer_name?: string
-          customer_phone?: string | null // <-- TAMBAHKAN INI
+          customer_phone?: string | null
           items?: Json | null
           order_date?: string
           pickup_date?: string
@@ -53,7 +52,6 @@ export interface Database {
         }
         Relationships: []
       }
-      // ... sisa definisi tabel lain tidak perlu diubah
       orders: {
         Row: {
           created_at: string
