@@ -81,6 +81,7 @@ export default function CustomerManagement() {
             <DialogContent className="max-w-md">
               <DialogHeader>
                 <DialogTitle>Tambah Pelanggan Baru</DialogTitle>
+                {/* PERBAIKAN: Menambahkan deskripsi pada dialog */}
                 <DialogDescription>Masukkan detail pelanggan untuk menyimpannya ke dalam sistem.</DialogDescription>
               </DialogHeader>
               <div className="space-y-4">

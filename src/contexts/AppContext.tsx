@@ -6,7 +6,7 @@ import { toast } from '@/components/ui/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import { generateReceiptBytes, generateBoxOrderReceiptBytes } from '@/utils/printerUtils';
 import { Database } from '@/integrations/supabase/types';
-import { RealtimePostgresChangesPayload, Session, AuthError, User } from '@supabase/supabase-js';
+import { RealtimeChannel, RealtimePostgresChangesPayload, Session, AuthError, User } from '@supabase/supabase-js';
 
 type Profile = Database['public']['Tables']['profiles']['Row'];
 type OrderRow = Database['public']['Tables']['orders']['Row'];
@@ -60,6 +60,7 @@ const AppContext = createContext<AppContextType | undefined>(undefined);
 const defaultSettings: AppSettings = { restaurantName: 'RestoranKu', address: 'Jl. Jenderal Sudirman No. 1', phone: '08123456789', currency: 'Rp', receiptFooter: 'Terima Kasih atas Kunjungan Anda!', numberOfTables: 10, orderTypes: ['Dine In', 'Take Away', 'Delivery'], defaultStaffName: 'Kasir', staffList: ['Kasir', 'Admin'], paperSize: '80mm', enableCheckboxReceipt: false, autoPrintReceipt: false, bluetoothPrinter: '', autoBackup: false, theme: 'system', printCopies: 1, enablePackageMenu: false, packageCategories: [], reportsPassword: 'admin', };
 const mapOrderRowToOrder = (row: OrderRow): Order => ({ id: row.id, orderNumber: row.order_number, createdAt: new Date(row.created_at), items: (row.items as unknown as OrderItem[]) || [], totalItems: row.total_items || 0, status: (row.status as Order['status']) || 'pending', customer: row.customer || undefined, tableNumber: row.table_number || undefined, staffName: row.staff_name || undefined, notes: row.notes || undefined, orderType: row.order_type || undefined, });
 const mapStockRowToStockItem = (row: StockRow): StockItem => ({ ...row, id: row.id, created_at: row.created_at, last_updated: row.last_updated, name: row.name, type: row.type as 'BAHAN' | 'PRODUK', category: row.category || '', unit: row.unit || '', recipe: (row.recipe as unknown as RecipeItem[]) || null, variants: (row.variants as unknown as ProductVariant[]) || null, current_stock: row.current_stock, min_stock: row.min_stock });
+const mapBoxOrderRowToBoxOrder = (row: any): BoxOrder => ({ ...row, items: Array.isArray(row.items) ? row.items : [], });
 
 const SAVED_PRINTER_IDS_KEY = 'orderpal-saved-printer-ids';
 
@@ -76,8 +77,10 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
   const [activePrinters, setActivePrinters] = useState<ActivePrinter[]>([]);
   const [isReconnectingPrinter, setIsReconnectingPrinter] = useState(true);
 
-  const fetchAppData = useCallback(async () => {
-    setIsAppDataLoading(true);
+  const fetchAppData = useCallback(async (isInitialLoad = false) => {
+    if (isInitialLoad) {
+        setIsAppDataLoading(true);
+    }
     try {
       const [settingsRes, stocksRes, ordersRes, boxOrdersRes] = await Promise.all([
         supabase.from('settings').select('data').limit(1).single(),
@@ -89,12 +92,14 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
       if (settingsRes.data?.data) setSettings({ ...defaultSettings, ...(settingsRes.data.data as unknown as AppSettings) });
       if (stocksRes.data) setStocks(stocksRes.data.map(mapStockRowToStockItem));
       if (ordersRes.data) setOrders(ordersRes.data.map(mapOrderRowToOrder));
-      if (boxOrdersRes.data) setBoxOrders(boxOrdersRes.data as unknown as BoxOrder[]);
+      if (boxOrdersRes.data) setBoxOrders(boxOrdersRes.data.map(mapBoxOrderRowToBoxOrder));
 
     } catch (error: any) {
       toast({ title: "Gagal memuat data aplikasi", description: error.message, variant: "destructive" });
     } finally {
-      setIsAppDataLoading(false);
+      if (isInitialLoad) {
+        setIsAppDataLoading(false);
+      }
     }
   }, []);
 
@@ -119,16 +124,40 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     return () => subscription.unsubscribe();
   }, []);
   
+  // --- PERBAIKAN: Logika Real-time yang disempurnakan ---
   useEffect(() => {
-    if (session) {
-      fetchAppData();
-      const handleRealtimeUpdate = (payload: RealtimePostgresChangesPayload<{ [key: string]: any }>) => {
-        console.log('Perubahan terdeteksi:', payload);
-        fetchAppData();
-      };
-      const channel = supabase.channel('public-db-changes').on('postgres_changes', { event: '*', schema: 'public' }, handleRealtimeUpdate).subscribe();
-      return () => { supabase.removeChannel(channel); };
-    }
+    if (!session) return;
+
+    // Ambil data awal saat login
+    fetchAppData(true);
+
+    const handleRealtimeUpdate = (payload: RealtimePostgresChangesPayload<{ [key: string]: any }>) => {
+      console.log('🔄 Perubahan real-time terdeteksi:', payload);
+      toast({ title: "Data diperbarui secara real-time!" });
+      // Ambil data lagi tanpa menampilkan loading screen
+      fetchAppData(false); 
+    };
+
+    const channel = supabase
+      .channel('order-pal-realtime-channel')
+      .on('postgres_changes', { event: '*', schema: 'public' }, handleRealtimeUpdate)
+      .subscribe((status, err) => {
+        // Log status koneksi untuk mempermudah debugging
+        if (status === 'SUBSCRIBED') {
+          console.log('✅ Berhasil terhubung ke channel real-time!');
+        }
+        if (status === 'TIMED_OUT') {
+          console.warn('⌛ Koneksi real-time timeout. Mencoba menyambung ulang...');
+        }
+        if (status === 'CHANNEL_ERROR') {
+          console.error('❌ Terjadi error pada channel real-time:', err);
+        }
+      });
+
+    // Cleanup function untuk keluar dari channel saat komponen dilepas
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, [session, fetchAppData]);
   
   useEffect(() => {
@@ -210,7 +239,6 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
         toast({ title: "Gagal Memperbarui Status", description: error.message, variant: "destructive" });
     } else {
         toast({ title: "Status Pesanan Diperbarui" });
-        fetchAppData();
     }
   };
 

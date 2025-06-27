@@ -10,9 +10,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from '@/components/ui/textarea';
 import { supabase } from '@/integrations/supabase/client';
 import { useToast } from '@/components/ui/use-toast';
-import { Loader2, PlusCircle, Trash2, ArrowLeft, Save } from 'lucide-react';
+import { Loader2, PlusCircle, Trash2, ArrowLeft, Save, Info } from 'lucide-react';
 import { BoxOrderItem } from '@/types';
 import { useApp } from '@/contexts/AppContext';
+import { Json } from '@/integrations/supabase/types'; // Import tipe Json
 
 export default function BoxOrderForm() {
   const { stocks } = useApp();
@@ -21,7 +22,6 @@ export default function BoxOrderForm() {
 
   const [customerName, setCustomerName] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
-  const [items, setItems] = useState<BoxOrderItem[]>([{ productId: '', productName: '', quantity: 1 }]);
   const [pickupDate, setPickupDate] = useState('');
   const [paymentStatus, setPaymentStatus] = useState<'lunas' | 'dp' | 'belum_bayar'>('belum_bayar');
   const [paymentMethod, setPaymentMethod] = useState<'cash' | 'transfer' | 'lainnya'>('cash');
@@ -29,21 +29,36 @@ export default function BoxOrderForm() {
   const [isSaving, setIsSaving] = useState(false);
   const { toast } = useToast();
 
-  const handleAddItem = () => {
-    setItems([...items, { productId: '', productName: '', quantity: 1 }]);
-  };
+  const [items, setItems] = useState<BoxOrderItem[]>([]);
+  const [currentItemProductId, setCurrentItemProductId] = useState<string>('');
+  const [currentItemQuantity, setCurrentItemQuantity] = useState<number>(1);
 
-  const handleItemChange = (index: number, field: keyof BoxOrderItem, value: string | number) => {
-    const newItems = [...items];
-    const currentItem = { ...newItems[index], [field]: value };
-    
-    if (field === 'productId') {
-      const selectedProduct = products.find(p => p.id === value);
-      currentItem.productName = selectedProduct?.name || '';
+  const handleConfirmAndAddItem = () => {
+    if (!currentItemProductId || currentItemQuantity <= 0) {
+      toast({
+        title: "Pilihan Tidak Lengkap",
+        description: "Silakan pilih produk dan tentukan jumlah yang valid.",
+        variant: "destructive",
+      });
+      return;
     }
     
-    newItems[index] = currentItem;
-    setItems(newItems);
+    const selectedProduct = products.find(p => p.id === currentItemProductId);
+    if (!selectedProduct) return;
+
+    const newItem: BoxOrderItem = {
+      productId: selectedProduct.id,
+      productName: selectedProduct.name,
+      quantity: currentItemQuantity,
+    };
+
+    setItems([...items, newItem]);
+    setCurrentItemProductId('');
+    setCurrentItemQuantity(1);
+    toast({
+        title: "Item Ditambahkan",
+        description: `${newItem.quantity}x ${newItem.productName} berhasil ditambahkan ke daftar.`,
+    })
   };
 
   const handleRemoveItem = (index: number) => {
@@ -52,30 +67,34 @@ export default function BoxOrderForm() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!customerName || !pickupDate || items.length === 0 || items.some(it => !it.productId || it.quantity <= 0)) {
-        toast({ variant: "destructive", title: "Data tidak lengkap!", description: "Pastikan nama pelanggan, tanggal ambil, dan item pesanan telah diisi." });
+    if (!customerName || !pickupDate || items.length === 0) {
+        toast({ variant: "destructive", title: "Data tidak lengkap!", description: "Pastikan nama pelanggan, tanggal ambil, dan minimal satu item pesanan telah ditambahkan." });
         return;
     }
     setIsSaving(true);
+    const pickupDateISO = new Date(pickupDate).toISOString();
 
-    const { error } = await supabase.from('box_orders').insert({
+    const payload = {
       customer_name: customerName,
       customer_phone: customerPhone,
-      items: items as any,
+      // PERBAIKAN: Secara eksplisit mengubah tipe `items` menjadi Json
+      items: items as unknown as Json,
       order_date: new Date().toISOString(),
-      pickup_date: pickupDate,
+      pickup_date: pickupDateISO,
       payment_status: paymentStatus,
       payment_method: paymentMethod,
-      status: 'Baru',
+      status: 'Baru' as const,
       notes,
-    });
+    };
+
+    const { error } = await supabase.from('box_orders').insert(payload);
     
     setIsSaving(false);
     if (error) {
        toast({ variant: "destructive", title: "Gagal menyimpan!", description: error.message });
     } else {
        toast({ title: "Sukses!", description: "Pesanan nasi kotak berhasil disimpan." });
-       navigate('/box-orders'); // Kembali ke daftar pesanan setelah sukses
+       navigate('/box-orders');
     }
   };
 
@@ -102,32 +121,59 @@ export default function BoxOrderForm() {
         <Card className="lg:col-span-2">
             <CardHeader>
                 <CardTitle>Detail Pesanan</CardTitle>
-                <CardDescription>Produk apa saja yang dipesan oleh pelanggan.</CardDescription>
+                <CardDescription>Tambahkan produk satu per satu ke dalam pesanan.</CardDescription>
             </CardHeader>
-            <CardContent className="space-y-4">
-              {items.map((item, index) => (
-                  <div key={index} className="flex items-center gap-2">
-                    <Select value={item.productId} onValueChange={(value) => handleItemChange(index, 'productId', value)}>
-                        <SelectTrigger><SelectValue placeholder="Pilih Produk..."/></SelectTrigger>
-                        <SelectContent>
-                            {products.map(p => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}
-                        </SelectContent>
-                    </Select>
-                    <Input 
-                      type="number" 
-                      value={item.quantity} 
-                      onChange={(e) => handleItemChange(index, 'quantity', parseInt(e.target.value) || 1)} 
-                      className="w-24" 
-                      min="1"
-                    />
-                    <Button type="button" size="icon" variant="destructive" onClick={() => handleRemoveItem(index)}>
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
+            <CardContent className="space-y-6">
+              <div className="p-4 border rounded-lg bg-secondary space-y-3">
+                  <h4 className="font-medium text-lg">Form Tambah Item</h4>
+                  <div className="flex flex-col sm:flex-row items-end gap-2">
+                      <div className="flex-1 w-full">
+                          <Label htmlFor="product-select">Pilih Produk</Label>
+                          <Select value={currentItemProductId} onValueChange={setCurrentItemProductId}>
+                              <SelectTrigger id="product-select"><SelectValue placeholder="Pilih Produk..."/></SelectTrigger>
+                              <SelectContent>
+                                  {products.map(p => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}
+                              </SelectContent>
+                          </Select>
+                      </div>
+                      <div className="w-full sm:w-28">
+                          <Label htmlFor="quantity-input">Jumlah</Label>
+                          <Input 
+                              id="quantity-input"
+                              type="number" 
+                              value={currentItemQuantity} 
+                              onChange={(e) => setCurrentItemQuantity(parseInt(e.target.value) || 1)}
+                              min="1"
+                          />
+                      </div>
+                      <Button type="button" onClick={handleConfirmAndAddItem} className="w-full sm:w-auto">
+                          <PlusCircle className="mr-2 h-4 w-4" /> Konfirmasi & Tambah
+                      </Button>
                   </div>
-                ))}
-                <Button type="button" variant="outline" className="w-full" onClick={handleAddItem}>
-                  <PlusCircle className="mr-2 h-4 w-4" /> Tambah Item Lainnya
-                </Button>
+              </div>
+              
+              <div className="space-y-2">
+                  <Label className="text-base">Item yang Sudah Ditambahkan</Label>
+                  {items.length === 0 ? (
+                      <div className="text-center text-muted-foreground py-6 border-2 border-dashed rounded-lg">
+                          <p>Belum ada item ditambahkan ke pesanan ini.</p>
+                      </div>
+                  ) : (
+                      <div className="space-y-2 border rounded-md p-2">
+                          {items.map((item, index) => (
+                              <div key={index} className="flex items-center justify-between p-2 bg-background rounded-md shadow-sm">
+                                  <div>
+                                      <p className="font-semibold">{item.productName}</p>
+                                      <p className="text-sm text-muted-foreground">Jumlah: {item.quantity}</p>
+                                  </div>
+                                  <Button type="button" size="icon" variant="ghost" className="text-destructive hover:bg-destructive/10" onClick={() => handleRemoveItem(index)}>
+                                      <Trash2 className="h-4 w-4" />
+                                  </Button>
+                              </div>
+                          ))}
+                      </div>
+                  )}
+              </div>
             </CardContent>
         </Card>
 

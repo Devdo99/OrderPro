@@ -86,16 +86,32 @@ export async function generateBoxOrderReceiptBytes(order: BoxOrder, settings: Ap
   if (order.customer_phone) {
     receiptText += `Telepon  : ${order.customer_phone}\n`;
   }
-  receiptText += `Tgl Ambil : ${new Date(order.pickup_date).toLocaleDateString('id-ID', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}\n`;
+  
+  // PERBAIKAN: Parsing tanggal yang lebih aman
+  let pickupDateFormatted = 'Tanggal tidak valid';
+  try {
+      const date = new Date(order.pickup_date);
+      if (!isNaN(date.getTime())) {
+          pickupDateFormatted = date.toLocaleDateString('id-ID', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+      }
+  } catch (e) {
+      console.error("Invalid pickup_date for printing:", order.pickup_date, e);
+  }
+  receiptText += `Tgl Ambil : ${pickupDateFormatted}\n`;
+
   receiptText += doubleSeparator;
   
   receiptText += BOLD_ON + 'Detail Pesanan:\n' + BOLD_OFF;
   
-  // **PERBAIKAN KEAMANAN DI SINI**
-  if (order.items && Array.isArray(order.items)) {
+  // PERBAIKAN: Pengecekan yang lebih aman sebelum iterasi
+  if (Array.isArray(order.items)) {
     order.items.forEach(item => {
-      receiptText += `${item.quantity} x ${item.productName}\n`;
+      if (item && item.quantity && item.productName) {
+         receiptText += `${item.quantity} x ${item.productName}\n`;
+      }
     });
+  } else {
+      receiptText += `(Tidak ada detail item)\n`;
   }
   receiptText += '\n';
 

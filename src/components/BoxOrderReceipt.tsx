@@ -21,8 +21,8 @@ export function BoxOrderReceipt({ order, isOpen, onOpenChange }: BoxOrderReceipt
   const [receiptText, setReceiptText] = useState('');
 
   useEffect(() => {
-    // **PERBAIKAN KEAMANAN DI SINI**
-    if (order && settings && order.items && Array.isArray(order.items)) {
+    // PERBAIKAN: Memastikan semua bagian struk dibuat meskipun ada data yang tidak valid
+    if (order && settings) {
       const paperWidth = settings.paperSize === '58mm' ? 32 : 48;
       const separator = '-'.repeat(paperWidth);
       const centered = (str: string) => (' '.repeat(Math.max(0, Math.floor((paperWidth - str.length) / 2))) + str);
@@ -36,13 +36,33 @@ export function BoxOrderReceipt({ order, isOpen, onOpenChange }: BoxOrderReceipt
       if (order.customer_phone) {
         text += `Telepon   : ${order.customer_phone}\n`;
       }
-      text += `Tgl Ambil  : ${format(new Date(order.pickup_date), 'dd MMM yyyy', { locale: id })}\n`;
+
+      // PERBAIKAN: Parsing tanggal yang lebih aman
+      let pickupDateFormatted = 'Tanggal tidak valid';
+      try {
+          // Memastikan tanggal yang masuk adalah objek Date yang valid
+          const date = new Date(order.pickup_date);
+          if (!isNaN(date.getTime())) {
+            pickupDateFormatted = format(date, 'dd MMM yyyy, HH:mm', { locale: id });
+          }
+      } catch (e) {
+          console.error("Invalid pickup_date for receipt preview:", order.pickup_date, e);
+      }
+      text += `Tgl Ambil  : ${pickupDateFormatted}\n`;
+
       text += `${separator}\n`;
       text += `Detail Pesanan:\n`;
       
-      order.items.forEach(item => {
-        text += `${item.quantity} x ${item.productName}\n`;
-      });
+      // PERBAIKAN: Pengecekan yang lebih aman sebelum iterasi
+      if (Array.isArray(order.items)) {
+        order.items.forEach(item => {
+          if (item && item.quantity && item.productName) {
+            text += `${item.quantity} x ${item.productName}\n`;
+          }
+        });
+      } else {
+        text += `(Tidak ada detail item)\n`;
+      }
 
       text += `\n${separator}\n`;
       text += `Status     : ${order.status}\n`;
@@ -52,6 +72,8 @@ export function BoxOrderReceipt({ order, isOpen, onOpenChange }: BoxOrderReceipt
       text += `${order.notes || 'Tidak ada catatan.'}\n\n`;
       text += `${centered('Terima Kasih!')}\n`;
       setReceiptText(text);
+    } else {
+        setReceiptText(''); // Kosongkan struk jika tidak ada data order
     }
   }, [order, settings]);
 

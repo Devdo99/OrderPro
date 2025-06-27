@@ -181,7 +181,14 @@ export interface Database {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      // --- PERBAIKAN DI SINI ---
+      decrement_stock: {
+        Args: {
+          stock_id: string;
+          decrement_value: number;
+        };
+        Returns: undefined;
+      };
     }
     Enums: {
       [_ in never]: never

@@ -29,8 +29,7 @@ export default function TableSelection({ onTablesSubmit }: TableSelectionProps) 
     const normalizedTableNumber = normalize(tableNumber);
     
     return orders.some(o => 
-      // --- PERBAIKAN DI SINI ---
-      // Menggunakan `tableNumber` (string) dan memecahnya menjadi array
+      // PERBAIKAN: Logika untuk menangani gabungan meja
       o.tableNumber?.split(',').map(normalize).includes(normalizedTableNumber) 
       && o.status === 'pending'
     );

@@ -1,7 +1,7 @@
 // src/pages/BoxOrdersPage.tsx
 
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom'; // <-- Impor useNavigate
+import { useNavigate } from 'react-router-dom';
 import { Button } from "@/components/ui/button";
 import { PlusCircle, Loader2 } from 'lucide-react';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/card';
@@ -10,10 +10,22 @@ import { BoxOrder } from '@/types';
 import { BoxOrderList } from '@/components/BoxOrderList';
 import { useToast } from '@/components/ui/use-toast';
 
+// PERBAIKAN: Fungsi untuk memvalidasi dan membersihkan data dari database
+const mapSupabaseDataToBoxOrder = (data: any[]): BoxOrder[] => {
+    return data.map(order => ({
+        ...order,
+        // Ini adalah bagian terpenting: memastikan `items` selalu array.
+        // Jika `items` dari database null, undefined, atau bukan array,
+        // maka akan diubah menjadi array kosong [].
+        items: Array.isArray(order.items) ? order.items : [],
+    }));
+};
+
+
 export default function BoxOrdersPage() {
   const [orders, setOrders] = useState<BoxOrder[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const navigate = useNavigate(); // <-- Inisialisasi hook navigasi
+  const navigate = useNavigate();
   const { toast } = useToast();
 
   useEffect(() => {
@@ -33,8 +45,13 @@ export default function BoxOrdersPage() {
         title: 'Gagal mengambil data pesanan',
         description: error.message,
       });
+      setOrders([]); // Set ke array kosong jika ada error
+    } else if (data) {
+      // PERBAIKAN: Gunakan fungsi mapping untuk membersihkan data
+      const cleanData = mapSupabaseDataToBoxOrder(data);
+      setOrders(cleanData);
     } else {
-      setOrders(data as BoxOrder[]);
+      setOrders([]); // Set ke array kosong jika tidak ada data
     }
     setIsLoading(false);
   };
@@ -46,7 +63,6 @@ export default function BoxOrdersPage() {
             <h1 className="text-2xl font-bold">Pesanan Nasi Kotak</h1>
             <p className="text-muted-foreground">Kelola semua pesanan katering atau dalam jumlah besar.</p>
         </div>
-        {/* Ubah tombol ini agar menavigasi ke halaman baru */}
         <Button onClick={() => navigate('/box-orders/new')}>
           <PlusCircle className="mr-2 h-4 w-4" /> Tambah Pesanan
         </Button>
