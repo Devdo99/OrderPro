@@ -2,9 +2,11 @@
 
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useApp } from '@/contexts/AppContext';
-import { ShoppingCart, Package, Utensils, AlertTriangle } from 'lucide-react';
+import { ShoppingCart, Package, Utensils, AlertTriangle, CalendarCheck } from 'lucide-react'; // <-- Menambahkan ikon baru
 import { Link } from 'react-router-dom';
 import { Skeleton } from '@/components/ui/skeleton';
+import { startOfDay, endOfDay, format } from 'date-fns'; // <-- Menambahkan format
+import { id as localeID } from 'date-fns/locale';
 
 export default function Dashboard() {
   const appContext = useApp();
@@ -27,11 +29,14 @@ export default function Dashboard() {
     );
   }
 
-  const { stocks, orders, getProducibleQuantity } = appContext;
+  const { stocks, orders, boxOrders, getProducibleQuantity } = appContext;
 
+  const todayStart = startOfDay(new Date());
+  const todayEnd = endOfDay(new Date());
+  
   const todayOrders = orders.filter(order => {
-    const today = new Date().toDateString();
-    return new Date(order.createdAt).toDateString() === today;
+    const orderDate = new Date(order.createdAt);
+    return orderDate >= todayStart && orderDate <= todayEnd;
   });
 
   const lowStockItems = stocks.filter(stock => {
@@ -45,6 +50,11 @@ export default function Dashboard() {
     return false;
   });
 
+  // --- LOGIKA BARU: Filter untuk pesanan nasi kotak yang akan datang ---
+  const upcomingBoxOrders = boxOrders
+    .filter(order => new Date(order.pickup_date) >= todayStart && (order.status === 'Baru' || order.status === 'Diproses'))
+    .sort((a, b) => new Date(a.pickup_date).getTime() - new Date(b.pickup_date).getTime());
+
   const stats = [
     { title: 'Pesanan Hari Ini', value: todayOrders.length, icon: ShoppingCart, color: 'text-blue-600', bgColor: 'bg-blue-100', link: '/order-list' },
     { title: 'Total Produk', value: stocks.filter(s => s.type === 'PRODUK').length, icon: Utensils, color: 'text-green-600', bgColor: 'bg-green-100', link: '/products' },
@@ -54,7 +64,6 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-6">
-      {/* --- Header Dashboard Baru --- */}
       <div className="bg-gradient-to-br from-card to-secondary rounded-lg p-6 border shadow-sm">
         <h1 className="text-3xl font-bold mb-2 text-foreground">Selamat Datang Selamat Berbahagia</h1>
         <p className="text-muted-foreground">Kelola pesanan, produk, dan bahan dengan mudah dari satu tempat.</p>
@@ -74,9 +83,9 @@ export default function Dashboard() {
         ))}
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <Card>
-          <CardHeader><CardTitle className="flex items-center gap-2"><ShoppingCart className="h-5 w-5 text-primary" />Pesanan Terbaru</CardTitle></CardHeader>
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <Card className="lg:col-span-2">
+          <CardHeader><CardTitle className="flex items-center gap-2"><ShoppingCart className="h-5 w-5 text-primary" />Pesanan Terbaru (Reguler)</CardTitle></CardHeader>
           <CardContent>
             {orders.length > 0 ? (
               <div className="space-y-3">
@@ -91,32 +100,35 @@ export default function Dashboard() {
                     </span>
                   </div>
                 ))}
-                <Link to="/order-list" className="pt-2 block text-center text-sm text-accent-foreground/80 hover:text-accent-foreground font-medium">Lihat Semua Pesanan →</Link>
+                <Link to="/order-list" className="pt-2 block text-center text-sm text-accent-foreground/80 hover:text-accent-foreground font-medium">Lihat Semua Pesanan Reguler →</Link>
               </div>
-            ) : (<p className="text-muted-foreground text-center py-8">Belum ada pesanan</p>)}
+            ) : (<p className="text-muted-foreground text-center py-8">Belum ada pesanan reguler</p>)}
           </CardContent>
         </Card>
 
-        <Card id="low-stock-alert">
-          <CardHeader><CardTitle className="flex items-center gap-2"><AlertTriangle className="h-5 w-5 text-destructive" />Peringatan Stok</CardTitle></CardHeader>
+        {/* --- FITUR BARU: Kartu Pesanan Nasi Kotak Mendatang --- */}
+        <Card>
+          <CardHeader><CardTitle className="flex items-center gap-2"><CalendarCheck className="h-5 w-5 text-indigo-600" />Pesanan Nasi Kotak Mendatang</CardTitle></CardHeader>
           <CardContent>
-            {lowStockItems.length > 0 ? (
-              <div className="space-y-3">
-                {lowStockItems.slice(0, 5).map((item) => (
-                  <div key={item.id} className="flex justify-between items-center p-3 bg-destructive/10 rounded-lg border border-destructive/20">
-                    <div>
-                      <p className="font-medium text-destructive">{item.name}</p>
-                      <p className="text-sm text-destructive/80">
-                        {item.type === 'BAHAN' ? `Sisa: ${item.current_stock}` : `Bisa dibuat: ~${getProducibleQuantity(item.id)}`}
-                      </p>
-                    </div>
-                    <span className={`px-2 py-1 rounded-full text-xs font-medium ${item.type === 'BAHAN' ? 'bg-gray-200' : 'bg-blue-100 text-blue-800'}`}>{item.type}</span>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="text-center py-8"><Package className="h-12 w-12 text-green-500 mx-auto mb-2" /><p className="text-green-600 font-medium">Semua stok aman!</p><p className="text-muted-foreground text-sm">Tidak ada item dengan stok menipis</p></div>
-            )}
+            {upcomingBoxOrders.length > 0 ? (
+                <div className="space-y-3">
+                    {upcomingBoxOrders.slice(0, 4).map((order) => {
+                        const totalPax = Array.isArray(order.items) ? order.items.reduce((sum, item) => sum + item.quantity, 0) : 0;
+                        return (
+                            <div key={order.id} className="flex justify-between items-center p-3 bg-indigo-50 rounded-lg">
+                                <div>
+                                    <p className="font-medium text-indigo-800">{order.customer_name}</p>
+                                    <p className="text-sm text-indigo-600">{totalPax} pax • Diambil {format(new Date(order.pickup_date), "d MMM", { locale: localeID })}</p>
+                                </div>
+                                <span className={`px-2 py-1 rounded-full text-xs font-medium ${order.status === 'Baru' ? 'bg-blue-100 text-blue-800' : 'bg-yellow-100 text-yellow-800'}`}>
+                                    {order.status}
+                                </span>
+                            </div>
+                        );
+                    })}
+                     <Link to="/box-orders" className="pt-2 block text-center text-sm text-accent-foreground/80 hover:text-accent-foreground font-medium">Lihat Semua Pesanan Nasi Kotak →</Link>
+                </div>
+            ) : (<p className="text-muted-foreground text-center py-8">Tidak ada pesanan nasi kotak mendatang.</p>)}
           </CardContent>
         </Card>
       </div>

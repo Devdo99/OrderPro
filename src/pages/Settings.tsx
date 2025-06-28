@@ -16,7 +16,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 export default function Settings() {
   const appContext = useApp();
   
-  if (!appContext) {
+  if (!appContext || !appContext.profile) {
     return (
       <div className="flex h-full w-full items-center justify-center p-8">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
@@ -33,9 +33,13 @@ export default function Settings() {
     connectBluetoothPrinter, 
     disconnectPrinter, 
     activePrinters, 
-    isReconnectingPrinter 
+    isReconnectingPrinter,
+    profile // Ambil profile dari context
   } = appContext;
   
+  // PERBAIKAN: Dapatkan peran pengguna
+  const userRole = profile.role?.toUpperCase() || 'EMPLOYEE';
+
   const [formData, setFormData] = useState(appContext.settings);
   const [newStaffName, setNewStaffName] = useState('');
   const [btError, setBtError] = useState<string | null>(null);
@@ -74,62 +78,67 @@ export default function Settings() {
   
   return (
     <div className="space-y-6 max-w-4xl mx-auto p-4">
-      <Card>
-        <CardHeader><CardTitle>Informasi Restoran</CardTitle></CardHeader>
-        <CardContent className="space-y-4">
-          <div><Label>Nama Restoran</Label><Input value={formData.restaurantName} onChange={(e) => setFormData(p => ({ ...p!, restaurantName: e.target.value }))} /></div>
-          <div><Label>Alamat</Label><Textarea value={formData.address} onChange={(e) => setFormData(p => ({ ...p!, address: e.target.value }))} /></div>
-          <div><Label>Nomor Telepon</Label><Input value={formData.phone} onChange={(e) => setFormData(p => ({ ...p!, phone: e.target.value }))} /></div>
-          <div><Label>Jumlah Meja</Label><Input type="number" min={0} value={formData.numberOfTables} onChange={(e) => setFormData(p => ({ ...p!, numberOfTables: Number(e.target.value) }))} /></div>
-        </CardContent>
-      </Card>
-      
-      <Card>
-        <CardHeader><CardTitle className="flex items-center gap-2"><Users className="h-5 w-5" />Manajemen Staff</CardTitle></CardHeader>
-        <CardContent className="space-y-4">
-            <div>
-              <Label htmlFor="defaultStaff">Staff Default</Label>
-              <Select
-                value={formData.defaultStaffName || ''}
-                onValueChange={(value) => setFormData(p => ({ ...p!, defaultStaffName: value }))}
-              >
-                <SelectTrigger id="defaultStaff"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {formData.staffList.map(staff => <SelectItem key={staff} value={staff}>{staff}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="space-y-2">
-              <Label>Daftar Staff</Label>
-              {formData.staffList.length > 0 ? (
-                <div className="space-y-2 rounded-lg border p-3">
-                  {formData.staffList.map(staff => (
-                    <div key={staff} className="flex items-center justify-between">
-                      <span>{staff}</span>
-                      <Button size="sm" variant="ghost" onClick={() => handleRemoveStaff(staff)} disabled={formData.staffList.length <= 1}>
-                        <Trash2 className="h-4 w-4 text-red-500" />
-                      </Button>
+      {/* PERBAIKAN: Tampilkan kartu ini hanya untuk Manager */}
+      {userRole === 'MANAGER' && (
+        <>
+            <Card>
+                <CardHeader><CardTitle>Informasi Restoran</CardTitle></CardHeader>
+                <CardContent className="space-y-4">
+                <div><Label>Nama Restoran</Label><Input value={formData.restaurantName} onChange={(e) => setFormData(p => ({ ...p!, restaurantName: e.target.value }))} /></div>
+                <div><Label>Alamat</Label><Textarea value={formData.address} onChange={(e) => setFormData(p => ({ ...p!, address: e.target.value }))} /></div>
+                <div><Label>Nomor Telepon</Label><Input value={formData.phone} onChange={(e) => setFormData(p => ({ ...p!, phone: e.target.value }))} /></div>
+                <div><Label>Jumlah Meja</Label><Input type="number" min={0} value={formData.numberOfTables} onChange={(e) => setFormData(p => ({ ...p!, numberOfTables: Number(e.target.value) }))} /></div>
+                </CardContent>
+            </Card>
+            
+            <Card>
+                <CardHeader><CardTitle className="flex items-center gap-2"><Users className="h-5 w-5" />Manajemen Staff</CardTitle></CardHeader>
+                <CardContent className="space-y-4">
+                    <div>
+                    <Label htmlFor="defaultStaff">Staff Default</Label>
+                    <Select
+                        value={formData.defaultStaffName || ''}
+                        onValueChange={(value) => setFormData(p => ({ ...p!, defaultStaffName: value }))}
+                    >
+                        <SelectTrigger id="defaultStaff"><SelectValue /></SelectTrigger>
+                        <SelectContent>
+                        {formData.staffList.map(staff => <SelectItem key={staff} value={staff}>{staff}</SelectItem>)}
+                        </SelectContent>
+                    </Select>
                     </div>
-                  ))}
-                </div>
-              ) : <p className="text-sm text-muted-foreground">Belum ada staff.</p>}
-            </div>
 
-            <form onSubmit={handleAddStaff} className="flex items-end gap-2">
-              <div className="flex-1">
-                <Label htmlFor="newStaffName">Tambah Staff Baru</Label>
-                <Input
-                  id="newStaffName"
-                  value={newStaffName}
-                  onChange={(e) => setNewStaffName(e.target.value)}
-                  placeholder="Nama staff baru"
-                />
-              </div>
-              <Button type="submit"><Plus className="mr-2 h-4 w-4"/> Tambah</Button>
-            </form>
-        </CardContent>
-      </Card>
+                    <div className="space-y-2">
+                    <Label>Daftar Staff</Label>
+                    {formData.staffList.length > 0 ? (
+                        <div className="space-y-2 rounded-lg border p-3">
+                        {formData.staffList.map(staff => (
+                            <div key={staff} className="flex items-center justify-between">
+                            <span>{staff}</span>
+                            <Button size="sm" variant="ghost" onClick={() => handleRemoveStaff(staff)} disabled={formData.staffList.length <= 1}>
+                                <Trash2 className="h-4 w-4 text-red-500" />
+                            </Button>
+                            </div>
+                        ))}
+                        </div>
+                    ) : <p className="text-sm text-muted-foreground">Belum ada staff.</p>}
+                    </div>
+
+                    <form onSubmit={handleAddStaff} className="flex items-end gap-2">
+                    <div className="flex-1">
+                        <Label htmlFor="newStaffName">Tambah Staff Baru</Label>
+                        <Input
+                        id="newStaffName"
+                        value={newStaffName}
+                        onChange={(e) => setNewStaffName(e.target.value)}
+                        placeholder="Nama staff baru"
+                        />
+                    </div>
+                    <Button type="submit"><Plus className="mr-2 h-4 w-4"/> Tambah</Button>
+                    </form>
+                </CardContent>
+            </Card>
+        </>
+      )}
 
       <Card>
         <CardHeader>
@@ -203,9 +212,12 @@ export default function Settings() {
         </CardContent>
       </Card>
       
-      <div className="flex justify-center">
-        <Button onClick={handleSave} size="lg"><Save className="mr-2" /> Simpan Semua Pengaturan</Button>
-      </div>
+      {/* PERBAIKAN: Tombol simpan hanya bisa diklik oleh Manager */}
+      {userRole === 'MANAGER' && (
+        <div className="flex justify-center">
+            <Button onClick={handleSave} size="lg"><Save className="mr-2" /> Simpan Semua Pengaturan</Button>
+        </div>
+      )}
     </div>
   );
 }

@@ -1,6 +1,6 @@
 // src/components/AppSidebar.tsx
 
-import { Settings, FileText, ShoppingCart, List, Wheat, Utensils, Home, LogOut, UserCircle, Package } from 'lucide-react'; // Pastikan 'Package' di-import
+import { Settings, FileText, ShoppingCart, List, Wheat, Utensils, Home, LogOut, Package } from 'lucide-react';
 import { NavLink } from 'react-router-dom';
 import { Sidebar, SidebarContent, SidebarHeader, SidebarFooter, SidebarGroup, SidebarGroupLabel, SidebarMenu, SidebarMenuItem } from '@/components/ui/sidebar';
 import { useApp } from '@/contexts/AppContext';
@@ -9,24 +9,27 @@ import { Avatar, AvatarFallback } from './ui/avatar';
 import { Skeleton } from './ui/skeleton';
 
 const menuItems = [
-  { title: 'Dashboard', url: '/', icon: Home },
-  { title: 'Buat Pesanan', url: '/orders', icon: ShoppingCart },
-  { title: 'Daftar Pesanan', url: '/order-list', icon: List },
-  { title: 'Pesanan Nasi Kotak', url: '/box-orders', icon: Package } // <-- TAMBAHKAN BARIS INI
+  { title: 'Dashboard', url: '/', icon: Home, roles: ['MANAGER', 'EMPLOYEE'] },
+  { title: 'Buat Pesanan', url: '/orders', icon: ShoppingCart, roles: ['MANAGER', 'EMPLOYEE'] },
+  { title: 'Daftar Pesanan', url: '/order-list', icon: List, roles: ['MANAGER', 'EMPLOYEE'] },
+  { title: 'Pesanan Nasi Kotak', url: '/box-orders', icon: Package, roles: ['MANAGER', 'EMPLOYEE'] }
 ];
 
 const masterDataItems = [
-    { title: 'Produk', url: '/products', icon: Utensils },
-    { title: 'Bahan', url: '/ingredients', icon: Wheat },
+    { title: 'Produk', url: '/products', icon: Utensils, roles: ['MANAGER'] },
+    // PERBAIKAN: Menambahkan 'EMPLOYEE' ke peran yang diizinkan untuk mengakses menu Bahan
+    { title: 'Bahan', url: '/ingredients', icon: Wheat, roles: ['MANAGER', 'EMPLOYEE'] },
 ]
 
 const otherMenuItems = [
-    { title: 'Laporan', url: '/reports', icon: FileText },
-    { title: 'Pengaturan', url: '/settings', icon: Settings },
+    { title: 'Laporan', url: '/reports', icon: FileText, roles: ['MANAGER'] },
+    { title: 'Pengaturan', url: '/settings', icon: Settings, roles: ['MANAGER', 'EMPLOYEE'] },
 ]
 
 export function AppSidebar() {
   const { auth, profile, settings, isAppDataLoading } = useApp();
+  
+  const userRole = profile?.role?.toUpperCase() || 'EMPLOYEE';
 
   const handleLogout = async () => {
       await auth.signOut();
@@ -75,7 +78,7 @@ export function AppSidebar() {
           <SidebarGroup>
               <SidebarGroupLabel>Menu Utama</SidebarGroupLabel>
               <SidebarMenu className="space-y-1">
-                  {menuItems.map((item) => (
+                  {menuItems.filter(item => item.roles.includes(userRole)).map((item) => (
                       <SidebarMenuItem key={item.title}>
                           <NavLink to={item.url} className={getNavCls}>
                               <item.icon className="mr-3 h-5 w-5 flex-shrink-0" />
@@ -85,25 +88,28 @@ export function AppSidebar() {
                   ))}
               </SidebarMenu>
           </SidebarGroup>
-
-          <SidebarGroup>
-              <SidebarGroupLabel>Master Data</SidebarGroupLabel>
-              <SidebarMenu className="space-y-1">
-                  {masterDataItems.map((item) => (
-                      <SidebarMenuItem key={item.title}>
-                          <NavLink to={item.url} className={getNavCls}>
-                              <item.icon className="mr-3 h-5 w-5 flex-shrink-0" />
-                              <span className="truncate">{item.title}</span>
-                          </NavLink>
-                      </SidebarMenuItem>
-                  ))}
-              </SidebarMenu>
-          </SidebarGroup>
+          
+          {/* Grup Master Data sekarang bisa diakses Employee untuk melihat Bahan */}
+          {(userRole === 'MANAGER' || userRole === 'EMPLOYEE') && (
+            <SidebarGroup>
+                <SidebarGroupLabel>Master Data</SidebarGroupLabel>
+                <SidebarMenu className="space-y-1">
+                    {masterDataItems.filter(item => item.roles.includes(userRole)).map((item) => (
+                        <SidebarMenuItem key={item.title}>
+                            <NavLink to={item.url} className={getNavCls}>
+                                <item.icon className="mr-3 h-5 w-5 flex-shrink-0" />
+                                <span className="truncate">{item.title}</span>
+                            </NavLink>
+                        </SidebarMenuItem>
+                    ))}
+                </SidebarMenu>
+            </SidebarGroup>
+          )}
 
           <SidebarGroup>
               <SidebarGroupLabel>Administrasi</SidebarGroupLabel>
               <SidebarMenu className="space-y-1">
-                {otherMenuItems.map((item) => (
+                {otherMenuItems.filter(item => item.roles.includes(userRole)).map((item) => (
                     <SidebarMenuItem key={item.title}>
                         <NavLink to={item.url} className={getNavCls}>
                             <item.icon className="mr-3 h-5 w-5 flex-shrink-0" />

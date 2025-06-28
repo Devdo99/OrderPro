@@ -75,7 +75,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
   const [boxOrders, setBoxOrders] = useState<BoxOrder[]>([]);
   const [tables, setTables] = useState<Table[]>([]);
   const [activePrinters, setActivePrinters] = useState<ActivePrinter[]>([]);
-  const [isReconnectingPrinter, setIsReconnectingPrinter] = useState(true);
+  const [isReconnectingPrinter, setIsReconnectingPrinter] = useState(false);
 
   const fetchAppData = useCallback(async (isInitialLoad = false) => {
     if (isInitialLoad) {
@@ -103,38 +103,61 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     }
   }, []);
 
+  // --- PERBAIKAN: Menggunakan .maybeSingle() untuk mengambil profil ---
   useEffect(() => {
     const bootstrapSession = async () => {
-      const { data: { session: initialSession } } = await supabase.auth.getSession();
+      setIsLoading(true);
+      const { data: { session: initialSession }, error: sessionError } = await supabase.auth.getSession();
+
+      if (sessionError) {
+          toast({ title: "Error Sesi", description: sessionError.message, variant: "destructive" });
+          setIsLoading(false);
+          return;
+      }
+
       setSession(initialSession);
+
       if (initialSession) {
-        const { data: userProfile } = await supabase.from('profiles').select('*').eq('id', initialSession.user.id).single();
+        // Menggunakan .maybeSingle() agar tidak error jika profil belum ada
+        const { data: userProfile, error: profileError } = await supabase
+          .from('profiles')
+          .select('*')
+          .eq('id', initialSession.user.id)
+          .maybeSingle(); 
+
+        if (profileError) {
+            // Kita tidak menganggap '406' sebagai error fatal lagi
+            console.error("Error mengambil profil:", profileError);
+            toast({ title: "Gagal Mengambil Profil", description: profileError.message, variant: "destructive" });
+        }
         setProfile(userProfile as Profile);
       }
       setIsLoading(false);
     };
+
     bootstrapSession();
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, newSession) => {
       setSession(newSession);
       if (!newSession) {
         setProfile(null);
+      } else {
+        // Coba ambil profil lagi saat sesi berubah
+        bootstrapSession();
       }
     });
+
     return () => subscription.unsubscribe();
   }, []);
   
-  // --- PERBAIKAN: Logika Real-time yang disempurnakan ---
   useEffect(() => {
     if (!session) return;
 
-    // Ambil data awal saat login
     fetchAppData(true);
 
     const handleRealtimeUpdate = (payload: RealtimePostgresChangesPayload<{ [key: string]: any }>) => {
       console.log('🔄 Perubahan real-time terdeteksi:', payload);
       toast({ title: "Data diperbarui secara real-time!" });
-      // Ambil data lagi tanpa menampilkan loading screen
       fetchAppData(false); 
     };
 
@@ -142,7 +165,6 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
       .channel('order-pal-realtime-channel')
       .on('postgres_changes', { event: '*', schema: 'public' }, handleRealtimeUpdate)
       .subscribe((status, err) => {
-        // Log status koneksi untuk mempermudah debugging
         if (status === 'SUBSCRIBED') {
           console.log('✅ Berhasil terhubung ke channel real-time!');
         }
@@ -154,7 +176,6 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
         }
       });
 
-    // Cleanup function untuk keluar dari channel saat komponen dilepas
     return () => {
       supabase.removeChannel(channel);
     };
@@ -166,96 +187,15 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     }
   }, [settings.numberOfTables, session]);
 
-  const addStock = async (stockData: Omit<StockItem, 'id' | 'created_at' | 'last_updated'>) => { await supabase.from('stocks').insert({ ...stockData } as any); };
-  const updateStock = async (id: string, updates: Partial<Omit<StockItem, 'id' | 'created_at' | 'last_updated'>>) => { await supabase.from('stocks').update({ ...updates, last_updated: new Date().toISOString() } as any).eq('id', id); };
-  const deleteStock = async (id: string) => { await supabase.from('stocks').delete().eq('id', id); };
-  const bulkImportStocks = async (stocksData: Omit<StockItem, 'id' | 'created_at' | 'last_updated'>[]) => { await supabase.from('stocks').insert(stocksData as any); };
-  const getProducibleQuantity = useCallback((productId: string): number => { const product = stocks.find(s => s.id === productId); if (!product || !product.recipe || product.recipe.length === 0) return 999; let maxProducible = Infinity; for (const recipeItem of product.recipe) { const ingredient = stocks.find(s => s.id === recipeItem.ingredientId); if (!ingredient) return 0; const producibleFromThis = Math.floor(ingredient.current_stock / recipeItem.quantityNeeded); if (producibleFromThis < maxProducible) maxProducible = producibleFromThis; } return maxProducible === Infinity ? 0 : maxProducible; }, [stocks]);
-  
-  const addOrder = async (items: OrderItem[], customer?: string, tableNumbers?: string[], staffName?: string, orderNotes?: string, orderType?: string) => {
-    const orderNumber = `ORD-${Date.now()}`;
-    const totalItems = items.reduce((sum, item) => sum + item.quantity, 0);
-    const newOrder: Omit<OrderRow, 'id' | 'created_at'> = { order_number: orderNumber, items: items as any, total_items: totalItems, status: 'pending', customer, table_number: tableNumbers?.join(','), staff_name: staffName || settings.defaultStaffName, notes: orderNotes, order_type: orderType, };
-    const { data, error } = await supabase.from('orders').insert(newOrder).select().single();
-    if (error) { toast({ title: 'Gagal menyimpan pesanan', description: error.message, variant: 'destructive' }); return; }
-    if (settings.autoPrintReceipt && data) {
-      await printReceipt(mapOrderRowToOrder(data));
-    }
-  };
-  
-  const updateOrderStatus = async (orderId: string, newStatus: Order['status']) => { await supabase.from('orders').update({ status: newStatus }).eq('id', orderId); };
-  
-  const processBoxOrderStockDeduction = async (orderId: string) => {
-    toast({ title: "Memproses Stok...", description: "Mengurangi stok bahan baku untuk pesanan nasi kotak." });
-
-    const { data: orderData, error: orderError } = await supabase
-      .from('box_orders')
-      .select('items')
-      .eq('id', orderId)
-      .single();
-
-    if (orderError || !orderData) {
-      toast({ title: "Gagal memproses stok", description: "Tidak dapat menemukan data pesanan.", variant: "destructive" });
-      return;
-    }
-
-    const items = orderData.items as unknown as BoxOrderItem[];
-    const ingredientDeductions = new Map<string, number>();
-
-    for (const item of items) {
-      const product = stocks.find(s => s.id === item.productId);
-      if (product && product.recipe) {
-        for (const recipeItem of product.recipe) {
-          const totalNeeded = recipeItem.quantityNeeded * item.quantity;
-          const currentDeduction = ingredientDeductions.get(recipeItem.ingredientId) || 0;
-          ingredientDeductions.set(recipeItem.ingredientId, currentDeduction + totalNeeded);
-        }
-      }
-    }
-
-    for (const [ingredientId, quantityToDeduct] of ingredientDeductions.entries()) {
-      const { error: rpcError } = await supabase.rpc('decrement_stock', {
-        stock_id: ingredientId,
-        decrement_value: quantityToDeduct
-      });
-
-      if (rpcError) {
-        console.error(`Gagal mengurangi stok untuk bahan ${ingredientId}:`, rpcError);
-        toast({ title: `Gagal mengurangi stok bahan`, description: rpcError.message, variant: "destructive" });
-      }
-    }
-    toast({ title: "Stok berhasil diperbarui!" });
-  };
-
-  const updateBoxOrderStatus = async (orderId: string, newStatus: BoxOrder['status']) => {
-    const { data: currentOrder } = await supabase.from('box_orders').select('status').eq('id', orderId).single();
-
-    if (currentOrder && currentOrder.status !== 'Diproses' && newStatus === 'Diproses') {
-      await processBoxOrderStockDeduction(orderId);
-    }
-  
-    const { error } = await supabase.from('box_orders').update({ status: newStatus }).eq('id', orderId);
-    if (error) {
-        toast({ title: "Gagal Memperbarui Status", description: error.message, variant: "destructive" });
-    } else {
-        toast({ title: "Status Pesanan Diperbarui" });
-    }
-  };
-
-  const transferTable = async (orderId: string, newTableNumbers: string[]) => { await supabase.from('orders').update({ table_number: newTableNumbers.join(',') }).eq('id', orderId); };
-  const updateSettings = async (updates: Partial<AppSettings>) => { const newSettings = { ...settings, ...updates }; await supabase.from('settings').update({ data: newSettings as any }).eq('id', 1); };
-  const addStaff = async (name: string) => { if (!name.trim()) return; const newStaffList = [...(settings.staffList || []), name.trim()]; await updateSettings({ staffList: newStaffList }); };
-  const removeStaff = async (name: string) => { if ((settings.staffList || []).length <= 1) { toast({ title: "Tidak bisa menghapus", description: "Harus ada minimal satu staff.", variant: "destructive" }); return; } const newStaffList = (settings.staffList || []).filter(s => s !== name); const newSettings: Partial<AppSettings> = { staffList: newStaffList }; if (settings.defaultStaffName === name) newSettings.defaultStaffName = newStaffList[0] || ''; await updateSettings(newSettings); };
-  const clearTable = async (orderId: string) => { await supabase.from('orders').update({ status: 'archived' as any }).eq('id', orderId); };
-  
   const _connectToDeviceAndSetState = useCallback(async (device: BluetoothDevice) => {
-    if (!device.gatt) {
-      throw new Error("GATT Server tidak ditemukan pada perangkat.");
+    if (activePrinters.some(p => p.device.id === device.id)) {
+      console.log(`Printer ${device.name} sudah terhubung.`);
+      return true;
     }
+    if (!device.gatt) throw new Error("GATT Server tidak ditemukan pada perangkat.");
     const server = await device.gatt.connect();
     const services = await server.getPrimaryServices();
     let writableCharacteristic: BluetoothRemoteGATTCharacteristic | null = null;
-    
     for (const service of services) {
       const characteristics = await service.getCharacteristics();
       for (const characteristic of characteristics) {
@@ -266,26 +206,15 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
       }
       if (writableCharacteristic) break;
     }
-
-    if (!writableCharacteristic) {
-      throw new Error("Tidak ditemukan characteristic yang bisa ditulis pada printer ini.");
-    }
-
+    if (!writableCharacteristic) throw new Error("Tidak ditemukan characteristic yang bisa ditulis.");
     const newPrinter: ActivePrinter = { device, server, characteristic: writableCharacteristic };
-    
-    setActivePrinters(prev => {
-        const existingIds = prev.map(p => p.device.id);
-        if (existingIds.includes(device.id)) return prev;
-        const newActivePrinters = [...prev, newPrinter];
-        
-        const idsToSave = newActivePrinters.map(p => p.device.id);
-        localStorage.setItem(SAVED_PRINTER_IDS_KEY, JSON.stringify(idsToSave));
-
-        return newActivePrinters;
-    });
-    
+    setActivePrinters(prev => [...prev.filter(p => p.device.id !== device.id), newPrinter]);
+    const savedIds = JSON.parse(localStorage.getItem(SAVED_PRINTER_IDS_KEY) || '[]');
+    if (!savedIds.includes(device.id)) {
+      localStorage.setItem(SAVED_PRINTER_IDS_KEY, JSON.stringify([...savedIds, device.id]));
+    }
     return true;
-  }, []);
+  }, [activePrinters]);
 
   const connectBluetoothPrinter = async (): Promise<boolean> => {
     if (!navigator.bluetooth) {
@@ -310,93 +239,65 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
   
   const disconnectPrinter = useCallback((printerId: string) => {
     const printerToDisconnect = activePrinters.find(p => p.device.id === printerId);
-    if (printerToDisconnect && printerToDisconnect.server.connected) {
+    if (printerToDisconnect?.server.connected) {
       printerToDisconnect.server.disconnect();
     }
-    
-    const newActivePrinters = activePrinters.filter(p => p.device.id !== printerId);
-    setActivePrinters(newActivePrinters);
-    
-    const idsToSave = newActivePrinters.map(p => p.device.id);
-    localStorage.setItem(SAVED_PRINTER_IDS_KEY, JSON.stringify(idsToSave));
-
+    setActivePrinters(prev => prev.filter(p => p.device.id !== printerId));
+    const savedIds = JSON.parse(localStorage.getItem(SAVED_PRINTER_IDS_KEY) || '[]');
+    localStorage.setItem(SAVED_PRINTER_IDS_KEY, JSON.stringify(savedIds.filter((id: string) => id !== printerId)));
     toast({ title: "Koneksi Printer Diputus" });
   }, [activePrinters]);
 
   useEffect(() => {
-    const savedIdsString = localStorage.getItem(SAVED_PRINTER_IDS_KEY);
-    if (!savedIdsString) {
-      setIsReconnectingPrinter(false);
-      return;
-    };
-
-    const reconnect = async () => {
+    const reconnectPrinters = async () => {
+      const savedIdsString = localStorage.getItem(SAVED_PRINTER_IDS_KEY);
+      if (!savedIdsString) return;
       if (!navigator.bluetooth?.getDevices) {
-        setIsReconnectingPrinter(false);
+        console.warn("API getDevices() tidak tersedia untuk koneksi ulang otomatis.");
         return;
       }
-      
-      console.log("Mencoba menyambung ulang ke printer tersimpan...");
       const savedIds = JSON.parse(savedIdsString) as string[];
+      if (savedIds.length === 0) return;
+      setIsReconnectingPrinter(true);
+      toast({ title: "Menyambungkan Ulang Printer", description: `Mencoba terhubung ke ${savedIds.length} printer...` });
       const permittedDevices = await navigator.bluetooth.getDevices();
-      
-      for(const savedId of savedIds) {
-          const savedDevice = permittedDevices.find(d => d.id === savedId);
-          if (savedDevice) {
+      for (const savedId of savedIds) {
+          const device = permittedDevices.find(d => d.id === savedId);
+          if (device) {
+            console.log(`Mencoba menyambung ke ${device.name}...`);
             try {
-              await _connectToDeviceAndSetState(savedDevice);
-              toast({ title: "Printer Tersambung Otomatis", description: `Terhubung kembali ke ${savedDevice.name}` });
-            } catch (error) {
-              console.error("Gagal menyambung ulang otomatis:", error);
+              await _connectToDeviceAndSetState(device);
+              toast({ title: "Printer Tersambung Otomatis", description: `Terhubung kembali ke ${device.name}` });
+            } catch (error: any) {
+              console.error(`Gagal menyambung ulang ke ${device.name}:`, error);
+              toast({ title: "Gagal Menyambung Ulang", description: `Tidak dapat terhubung ke ${device.name}. Silakan coba hubungkan manual.`, variant: 'destructive' });
             }
           }
       }
       setIsReconnectingPrinter(false);
     };
-
-    reconnect();
-  }, [_connectToDeviceAndSetState]);
+    if (session) {
+      reconnectPrinters();
+    }
+  }, [session, _connectToDeviceAndSetState]);
     
-  const printToAllPrinters = async (data: Uint8Array) => {
-    if (activePrinters.length === 0) {
-        toast({ title: "Tidak Ada Printer Terhubung", variant: "destructive" });
-        return false;
-    }
-
-    let allPrintedSuccessfully = true;
-    const chunkSize = 100;
-
-    for (const printer of activePrinters) {
-        try {
-            if (!printer.server.connected) await printer.server.connect();
-
-            for (let i = 0; i < data.length; i += chunkSize) {
-                const chunk = data.slice(i, i + chunkSize);
-                await printer.characteristic.writeValueWithoutResponse(chunk);
-            }
-            console.log(`Berhasil mengirim ke printer: ${printer.device.name}`);
-        } catch (error: any) {
-            allPrintedSuccessfully = false;
-            toast({ title: `Gagal Mencetak ke ${printer.device.name}`, description: error.message, variant: "destructive" });
-            console.error(`Printing error on ${printer.device.name}:`, error);
-        }
-    }
-    
-    if (allPrintedSuccessfully) {
-        toast({ title: "Berhasil Mencetak", description: `Struk dikirim ke ${activePrinters.length} printer.` });
-    }
-    return allPrintedSuccessfully;
-  }
-
-  const printReceipt = async (order: Order): Promise<boolean> => {
-    const receiptData = await generateReceiptBytes(order, settings);
-    return await printToAllPrinters(receiptData);
-  };
-
-  const printBoxOrderReceipt = async (order: BoxOrder): Promise<boolean> => {
-    const receiptData = await generateBoxOrderReceiptBytes(order, settings);
-    return await printToAllPrinters(receiptData);
-  };
+  const addStock = async (stockData: Omit<StockItem, 'id' | 'created_at' | 'last_updated'>) => { await supabase.from('stocks').insert({ ...stockData } as any); };
+  const updateStock = async (id: string, updates: Partial<Omit<StockItem, 'id' | 'created_at' | 'last_updated'>>) => { await supabase.from('stocks').update({ ...updates, last_updated: new Date().toISOString() } as any).eq('id', id); };
+  const deleteStock = async (id: string) => { await supabase.from('stocks').delete().eq('id', id); };
+  const bulkImportStocks = async (stocksData: Omit<StockItem, 'id' | 'created_at' | 'last_updated'>[]) => { await supabase.from('stocks').insert(stocksData as any); };
+  const getProducibleQuantity = useCallback((productId: string): number => { const product = stocks.find(s => s.id === productId); if (!product || !product.recipe || product.recipe.length === 0) return 999; let maxProducible = Infinity; for (const recipeItem of product.recipe) { const ingredient = stocks.find(s => s.id === recipeItem.ingredientId); if (!ingredient) return 0; const producibleFromThis = Math.floor(ingredient.current_stock / recipeItem.quantityNeeded); if (producibleFromThis < maxProducible) maxProducible = producibleFromThis; } return maxProducible === Infinity ? 0 : maxProducible; }, [stocks]);
+  const addOrder = async (items: OrderItem[], customer?: string, tableNumbers?: string[], staffName?: string, orderNotes?: string, orderType?: string) => { const orderNumber = `ORD-${Date.now()}`; const totalItems = items.reduce((sum, item) => sum + item.quantity, 0); const newOrder: Omit<OrderRow, 'id' | 'created_at'> = { order_number: orderNumber, items: items as any, total_items: totalItems, status: 'pending', customer, table_number: tableNumbers?.join(','), staff_name: staffName || settings.defaultStaffName, notes: orderNotes, order_type: orderType, }; const { data, error } = await supabase.from('orders').insert(newOrder).select().single(); if (error) { toast({ title: 'Gagal menyimpan pesanan', description: error.message, variant: 'destructive' }); return; } if (settings.autoPrintReceipt && data) { await printReceipt(mapOrderRowToOrder(data)); }};
+  const updateOrderStatus = async (orderId: string, newStatus: Order['status']) => { await supabase.from('orders').update({ status: newStatus }).eq('id', orderId); };
+  const processBoxOrderStockDeduction = async (orderId: string) => { toast({ title: "Memproses Stok...", description: "Mengurangi stok bahan baku untuk pesanan nasi kotak." }); const { data: orderData, error: orderError } = await supabase.from('box_orders').select('items').eq('id', orderId).single(); if (orderError || !orderData) { toast({ title: "Gagal memproses stok", description: "Tidak dapat menemukan data pesanan.", variant: "destructive" }); return; } const items = orderData.items as unknown as BoxOrderItem[]; const ingredientDeductions = new Map<string, number>(); for (const item of items) { const product = stocks.find(s => s.id === item.productId); if (product && product.recipe) { for (const recipeItem of product.recipe) { const totalNeeded = recipeItem.quantityNeeded * item.quantity; const currentDeduction = ingredientDeductions.get(recipeItem.ingredientId) || 0; ingredientDeductions.set(recipeItem.ingredientId, currentDeduction + totalNeeded); } } } for (const [ingredientId, quantityToDeduct] of ingredientDeductions.entries()) { const { error: rpcError } = await supabase.rpc('decrement_stock', { stock_id: ingredientId, decrement_value: quantityToDeduct }); if (rpcError) { console.error(`Gagal mengurangi stok untuk bahan ${ingredientId}:`, rpcError); toast({ title: `Gagal mengurangi stok bahan`, description: rpcError.message, variant: "destructive" }); } } toast({ title: "Stok berhasil diperbarui!" }); };
+  const updateBoxOrderStatus = async (orderId: string, newStatus: BoxOrder['status']) => { const { data: currentOrder } = await supabase.from('box_orders').select('status').eq('id', orderId).single(); if (currentOrder && currentOrder.status !== 'Diproses' && newStatus === 'Diproses') { await processBoxOrderStockDeduction(orderId); } const { error } = await supabase.from('box_orders').update({ status: newStatus }).eq('id', orderId); if (error) { toast({ title: "Gagal Memperbarui Status", description: error.message, variant: "destructive" }); } else { toast({ title: "Status Pesanan Diperbarui" }); } };
+  const transferTable = async (orderId: string, newTableNumbers: string[]) => { await supabase.from('orders').update({ table_number: newTableNumbers.join(',') }).eq('id', orderId); };
+  const updateSettings = async (updates: Partial<AppSettings>) => { const newSettings = { ...settings, ...updates }; await supabase.from('settings').update({ data: newSettings as any }).eq('id', 1); };
+  const addStaff = async (name: string) => { if (!name.trim()) return; const newStaffList = [...(settings.staffList || []), name.trim()]; await updateSettings({ staffList: newStaffList }); };
+  const removeStaff = async (name: string) => { if ((settings.staffList || []).length <= 1) { toast({ title: "Tidak bisa menghapus", description: "Harus ada minimal satu staff.", variant: "destructive" }); return; } const newStaffList = (settings.staffList || []).filter(s => s !== name); const newSettings: Partial<AppSettings> = { staffList: newStaffList }; if (settings.defaultStaffName === name) newSettings.defaultStaffName = newStaffList[0] || ''; await updateSettings(newSettings); };
+  const clearTable = async (orderId: string) => { await supabase.from('orders').update({ status: 'archived' as any }).eq('id', orderId); };
+  const printToAllPrinters = async (data: Uint8Array) => { if (activePrinters.length === 0) { toast({ title: "Tidak Ada Printer Terhubung", variant: "destructive" }); return false; } let allPrintedSuccessfully = true; const chunkSize = 100; for (const printer of activePrinters) { try { if (!printer.server.connected) await printer.server.connect(); for (let i = 0; i < data.length; i += chunkSize) { const chunk = data.slice(i, i + chunkSize); await printer.characteristic.writeValueWithoutResponse(chunk); } console.log(`Berhasil mengirim ke printer: ${printer.device.name}`); } catch (error: any) { allPrintedSuccessfully = false; toast({ title: `Gagal Mencetak ke ${printer.device.name}`, description: error.message, variant: "destructive" }); console.error(`Printing error on ${printer.device.name}:`, error); } } if (allPrintedSuccessfully) { toast({ title: "Berhasil Mencetak", description: `Struk dikirim ke ${activePrinters.length} printer.` }); } return allPrintedSuccessfully; };
+  const printReceipt = async (order: Order): Promise<boolean> => { const receiptData = await generateReceiptBytes(order, settings); return await printToAllPrinters(receiptData); };
+  const printBoxOrderReceipt = async (order: BoxOrder): Promise<boolean> => { const receiptData = await generateBoxOrderReceiptBytes(order, settings); return await printToAllPrinters(receiptData); };
 
   const value: AppContextType = {
     isLoading, isAppDataLoading, session, profile, stocks, orders, boxOrders, tables, settings, staffList: settings.staffList || [],
