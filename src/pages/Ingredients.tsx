@@ -1,6 +1,6 @@
 // src/pages/Ingredients.tsx
 
-import { useState, useEffect } from 'react'; // <-- PERBAIKAN: Menambahkan useEffect
+import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -12,8 +12,9 @@ import { Plus, Minus, Pencil, Save, PlusCircle } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import BulkStockImport from '@/components/BulkStockImport';
+import { generateIngredientTemplate } from '@/utils/exportUtils';
 
-// --- Komponen Pop-up untuk MENGGANTI/MENGEDIT Total Stok ---
 function EditStockPopover({ item, onUpdate }: { item: StockItem, onUpdate: (newStock: number) => void }) {
     const [stockValue, setStockValue] = useState(item.current_stock);
     const [isOpen, setIsOpen] = useState(false);
@@ -23,7 +24,6 @@ function EditStockPopover({ item, onUpdate }: { item: StockItem, onUpdate: (newS
         setIsOpen(false);
     }
     
-    // Reset nilai saat pop-up dibuka
     useEffect(() => {
         if (isOpen) {
             setStockValue(item.current_stock);
@@ -58,8 +58,6 @@ function EditStockPopover({ item, onUpdate }: { item: StockItem, onUpdate: (newS
     );
 }
 
-
-// --- Komponen Pop-up untuk MENAMBAH Stok ---
 function AddStockPopover({ item, onAdd }: { item: StockItem, onAdd: (amountToAdd: number) => void }) {
     const [amount, setAmount] = useState<number | string>('');
     const [isOpen, setIsOpen] = useState(false);
@@ -108,7 +106,6 @@ function AddStockPopover({ item, onAdd }: { item: StockItem, onAdd: (amountToAdd
     );
 }
 
-// --- Komponen Form untuk Dialog Tambah/Edit Bahan ---
 function IngredientForm({
   editingStock,
   onFinished
@@ -117,13 +114,16 @@ function IngredientForm({
   onFinished: () => void;
 }) {
   const { addStock, updateStock } = useApp();
-  const [formData, setFormData] = useState({
+  
+  const initialFormData = {
     name: '',
     category: '',
     unit: '',
     min_stock: 0,
-    ...editingStock
-  });
+    current_stock: 0
+  };
+
+  const [formData, setFormData] = useState(initialFormData);
 
   useEffect(() => {
     if (editingStock) {
@@ -132,10 +132,10 @@ function IngredientForm({
         category: editingStock.category || '',
         unit: editingStock.unit || '',
         min_stock: editingStock.min_stock || 0,
-        ...editingStock
+        current_stock: editingStock.current_stock || 0,
       });
     } else {
-      setFormData({ name: '', category: '', unit: '', min_stock: 0 });
+      setFormData(initialFormData);
     }
   }, [editingStock]);
 
@@ -147,16 +147,19 @@ function IngredientForm({
         variant: 'destructive'
       });
     }
-    const payload = {
+    
+    // --- PERBAIKAN: Menyertakan properti recipe dan variants ---
+    const payload: Omit<StockItem, 'id' | 'created_at' | 'last_updated'> = {
       name: formData.name,
       category: formData.category,
       unit: formData.unit,
       min_stock: Number(formData.min_stock),
-      type: 'BAHAN' as const,
-      recipe: null,
-      variants: null,
-      current_stock: editingStock?.current_stock || 0, // current_stock tidak diubah di form ini
+      type: 'BAHAN',
+      current_stock: formData.current_stock,
+      recipe: null, // Properti ini wajib ada, meskipun nilainya null
+      variants: null, // Properti ini juga wajib ada
     };
+
     if (editingStock) {
       updateStock(editingStock.id, payload);
       toast({ title: 'Bahan Diperbarui', description: `${formData.name} berhasil diperbarui.`});
@@ -197,7 +200,7 @@ function IngredientForm({
 
 
 export default function Ingredients() {
-  const { stocks, isLoading, updateStock, profile } = useApp();
+  const { stocks, isLoading, updateStock, addStock, profile } = useApp();
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingStock, setEditingStock] = useState<StockItem | null>(null);
   
@@ -243,11 +246,16 @@ export default function Ingredients() {
       <div className="flex justify-between items-center">
         <h1 className="text-2xl font-bold">Manajemen Bahan</h1>
         {canEditDetails && (
-          <Button onClick={() => handleOpenEditDialog(null)}><Plus className="mr-2 h-4 w-4" /> Tambah Bahan Baru</Button>
+          <div className="flex gap-2">
+            <BulkStockImport 
+              stockType="BAHAN" 
+              onGenerateTemplate={generateIngredientTemplate} 
+            />
+            <Button onClick={() => handleOpenEditDialog(null)}><Plus className="mr-2 h-4 w-4" /> Tambah Bahan Baru</Button>
+          </div>
         )}
       </div>
       
-      {/* --- PERBAIKAN: Dialog untuk Tambah/Edit Detail Bahan --- */}
       <Dialog open={isFormOpen} onOpenChange={setIsFormOpen}>
         <DialogContent>
           <DialogHeader>
