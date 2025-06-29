@@ -1,136 +1,154 @@
 // src/pages/Dashboard.tsx
 
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { useMemo } from 'react';
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { useApp } from '@/contexts/AppContext';
-import { ShoppingCart, Package, Utensils, AlertTriangle, CalendarCheck } from 'lucide-react'; // <-- Menambahkan ikon baru
-import { Link } from 'react-router-dom';
-import { Skeleton } from '@/components/ui/skeleton';
-import { startOfDay, endOfDay, format } from 'date-fns'; // <-- Menambahkan format
+import { Utensils, Package, AlertTriangle, CheckCircle } from 'lucide-react';
+import { DashboardStats } from '@/components/DashboardStats';
+import { SalesChart } from '@/components/SalesChart';
+import { StockItem } from '@/types';
+import { startOfDay, endOfDay, subDays, format } from 'date-fns';
 import { id as localeID } from 'date-fns/locale';
+import { Link } from 'react-router-dom';
 
 export default function Dashboard() {
-  const appContext = useApp();
+  const { stocks, orders, isLoading } = useApp();
 
-  if (!appContext) {
-    return (
-      <div className="space-y-6">
-        <Skeleton className="h-28 w-full rounded-lg" />
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-          <Skeleton className="h-24 w-full" />
-          <Skeleton className="h-24 w-full" />
-          <Skeleton className="h-24 w-full" />
-          <Skeleton className="h-24 w-full" />
-        </div>
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <Skeleton className="h-72 w-full" />
-          <Skeleton className="h-72 w-full" />
-        </div>
-      </div>
-    );
-  }
+  const {
+      todayOrdersCount,
+      todayCustomers,
+      salesData,
+      topProducts,
+      lowStockItems
+  } = useMemo(() => {
+    const now = new Date();
+    const todayStart = startOfDay(now);
+    const todayEnd = endOfDay(now);
+    
+    const todayOrders = orders.filter(o => {
+      const orderDate = new Date(o.createdAt);
+      return o.status === 'completed' && orderDate >= todayStart && orderDate <= todayEnd;
+    });
 
-  const { stocks, orders, boxOrders, getProducibleQuantity } = appContext;
+    const todayCustomers = new Set(todayOrders.map(o => o.customer).filter(Boolean)).size;
 
-  const todayStart = startOfDay(new Date());
-  const todayEnd = endOfDay(new Date());
-  
-  const todayOrders = orders.filter(order => {
-    const orderDate = new Date(order.createdAt);
-    return orderDate >= todayStart && orderDate <= todayEnd;
-  });
+    // --- PERBAIKAN: salesData sekarang menghitung kuantitas, bukan revenue ---
+    const salesData = Array.from({ length: 7 }).map((_, i) => {
+        const date = subDays(now, 6 - i);
+        const dayStart = startOfDay(date);
+        const dayEnd = endOfDay(date);
+        const total = orders
+            .filter(o => {
+                const orderDate = new Date(o.createdAt);
+                return o.status === 'completed' && orderDate >= dayStart && orderDate <= dayEnd;
+            })
+            .reduce((sum, order) => sum + order.totalItems, 0); // Menjumlahkan totalItems
+        return { name: format(date, 'd MMM', { locale: localeID }), total };
+    });
 
-  const lowStockItems = stocks.filter(stock => {
-    if (stock.type === 'BAHAN') {
-      return (stock.current_stock || 0) <= stock.min_stock;
-    }
-    if (stock.type === 'PRODUK') {
-      const producible = getProducibleQuantity(stock.id);
-      return producible <= stock.min_stock;
-    }
-    return false;
-  });
+    const productCount = new Map<string, {name: string, quantity: number}>();
+    todayOrders.forEach(order => {
+        order.items.forEach(item => {
+            const current = productCount.get(item.stockId) || { name: item.stockName, quantity: 0};
+            productCount.set(item.stockId, { ...current, quantity: current.quantity + item.quantity });
+        });
+    });
+    const topProducts = [...productCount.values()].sort((a, b) => b.quantity - a.quantity).slice(0, 5);
+    
+    const lowStockItems = stocks.filter(s => s.type === 'BAHAN' && s.current_stock <= s.min_stock)
+                                  .sort((a,b) => a.current_stock - b.current_stock);
 
-  // --- LOGIKA BARU: Filter untuk pesanan nasi kotak yang akan datang ---
-  const upcomingBoxOrders = boxOrders
-    .filter(order => new Date(order.pickup_date) >= todayStart && (order.status === 'Baru' || order.status === 'Diproses'))
-    .sort((a, b) => new Date(a.pickup_date).getTime() - new Date(b.pickup_date).getTime());
+    return {
+        todayOrdersCount: todayOrders.length,
+        todayCustomers,
+        salesData,
+        topProducts,
+        lowStockItems
+    };
+  }, [orders, stocks]);
 
-  const stats = [
-    { title: 'Pesanan Hari Ini', value: todayOrders.length, icon: ShoppingCart, color: 'text-blue-600', bgColor: 'bg-blue-100', link: '/order-list' },
-    { title: 'Total Produk', value: stocks.filter(s => s.type === 'PRODUK').length, icon: Utensils, color: 'text-green-600', bgColor: 'bg-green-100', link: '/products' },
-    { title: 'Stok Menipis', value: lowStockItems.length, icon: AlertTriangle, color: 'text-red-600', bgColor: 'bg-red-100', link: '/#low-stock-alert' },
-    { title: 'Total Bahan', value: stocks.filter(s => s.type === 'BAHAN').length, icon: Package, color: 'text-purple-600', bgColor: 'bg-purple-100', link: '/ingredients' }
-  ];
 
   return (
-    <div className="space-y-6">
-      <div className="bg-gradient-to-br from-card to-secondary rounded-lg p-6 border shadow-sm">
-        <h1 className="text-3xl font-bold mb-2 text-foreground">Selamat Datang Selamat Berbahagia</h1>
-        <p className="text-muted-foreground">Kelola pesanan, produk, dan bahan dengan mudah dari satu tempat.</p>
+    <div className="flex-1 space-y-4 p-8 pt-6">
+      <div className="flex items-center justify-between space-y-2">
+        <h2 className="text-3xl font-bold tracking-tight">Dashboard</h2>
       </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        {stats.map((stat, index) => (
-          <Link key={index} to={stat.link} className="block">
-            <Card className="hover:shadow-lg transition-all duration-200 hover:-translate-y-1 cursor-pointer">
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium text-muted-foreground">{stat.title}</CardTitle>
-                <div className={`p-2 rounded-lg ${stat.bgColor}`}><stat.icon className={`h-5 w-5 ${stat.color}`} /></div>
-              </CardHeader>
-              <CardContent><div className="text-2xl font-bold">{stat.value}</div></CardContent>
-            </Card>
-          </Link>
-        ))}
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <Card className="lg:col-span-2">
-          <CardHeader><CardTitle className="flex items-center gap-2"><ShoppingCart className="h-5 w-5 text-primary" />Pesanan Terbaru (Reguler)</CardTitle></CardHeader>
-          <CardContent>
-            {orders.length > 0 ? (
-              <div className="space-y-3">
-                {orders.slice(0, 5).map((order) => (
-                  <div key={order.id} className="flex justify-between items-center p-3 bg-secondary rounded-lg">
-                    <div>
-                      <p className="font-medium">{order.orderNumber}</p>
-                      <p className="text-sm text-muted-foreground">{order.totalItems} item • {new Date(order.createdAt).toLocaleTimeString('id-ID')}</p>
+      <div className="space-y-4">
+        {/* PERBAIKAN: totalRevenue dihapus */}
+        <DashboardStats 
+            isLoading={isLoading}
+            totalOrders={todayOrdersCount}
+            totalCustomers={todayCustomers}
+            lowStockCount={lowStockItems.length}
+        />
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-7">
+          {/* PERBAIKAN: SalesChart sekarang menampilkan kuantitas */}
+          <SalesChart data={salesData} />
+          <Card className="col-span-4 lg:col-span-3">
+            <CardHeader>
+              <CardTitle>Menu Terlaris Hari Ini</CardTitle>
+              <CardDescription>5 produk yang paling banyak dipesan hari ini.</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-4">
+                {topProducts.length > 0 ? topProducts.map((product) => (
+                  <div key={product.name} className="flex items-center">
+                    <div className="p-3 bg-blue-100 rounded-md mr-4">
+                        <Utensils className="h-5 w-5 text-blue-600" />
                     </div>
-                    <span className={`px-2 py-1 rounded-full text-xs font-medium ${order.status === 'completed' ? 'bg-green-100 text-green-800' : order.status === 'pending' ? 'bg-yellow-100 text-yellow-800' : 'bg-red-100 text-red-800'}`}>
-                      {order.status}
-                    </span>
+                    <div className="flex-1 space-y-1">
+                      <p className="text-sm font-medium leading-none">{product.name}</p>
+                    </div>
+                    <div className="font-semibold">{product.quantity} terjual</div>
                   </div>
-                ))}
-                <Link to="/order-list" className="pt-2 block text-center text-sm text-accent-foreground/80 hover:text-accent-foreground font-medium">Lihat Semua Pesanan Reguler →</Link>
+                )) : (
+                    <div className="text-center text-muted-foreground py-8">
+                        <Package className="h-10 w-10 mx-auto mb-2" />
+                        <p>Belum ada penjualan hari ini.</p>
+                    </div>
+                )}
               </div>
-            ) : (<p className="text-muted-foreground text-center py-8">Belum ada pesanan reguler</p>)}
-          </CardContent>
-        </Card>
-
-        {/* --- FITUR BARU: Kartu Pesanan Nasi Kotak Mendatang --- */}
-        <Card>
-          <CardHeader><CardTitle className="flex items-center gap-2"><CalendarCheck className="h-5 w-5 text-indigo-600" />Pesanan Nasi Kotak Mendatang</CardTitle></CardHeader>
-          <CardContent>
-            {upcomingBoxOrders.length > 0 ? (
-                <div className="space-y-3">
-                    {upcomingBoxOrders.slice(0, 4).map((order) => {
-                        const totalPax = Array.isArray(order.items) ? order.items.reduce((sum, item) => sum + item.quantity, 0) : 0;
-                        return (
-                            <div key={order.id} className="flex justify-between items-center p-3 bg-indigo-50 rounded-lg">
-                                <div>
-                                    <p className="font-medium text-indigo-800">{order.customer_name}</p>
-                                    <p className="text-sm text-indigo-600">{totalPax} pax • Diambil {format(new Date(order.pickup_date), "d MMM", { locale: localeID })}</p>
+            </CardContent>
+          </Card>
+        </div>
+        <div className="grid gap-4">
+             <Card>
+                <CardHeader>
+                    <CardTitle className='flex items-center gap-2'><AlertTriangle className="h-5 w-5 text-red-600"/>Peringatan Stok Bahan</CardTitle>
+                    <CardDescription>Bahan baku yang perlu segera diisi ulang.</CardDescription>
+                </CardHeader>
+                <CardContent>
+                    {lowStockItems.length > 0 ? (
+                        <div className="space-y-4">
+                            {lowStockItems.slice(0, 5).map(item => (
+                                <div key={item.id} className="flex items-center">
+                                    <div className={`p-3 rounded-md mr-4 ${item.current_stock === 0 ? 'bg-red-100' : 'bg-yellow-100'}`}>
+                                        <Package className={`h-5 w-5 ${item.current_stock === 0 ? 'text-red-600' : 'text-yellow-600'}`} />
+                                    </div>
+                                    <div className="flex-1 space-y-1">
+                                        <p className="text-sm font-medium leading-none">{item.name}</p>
+                                        <p className="text-sm text-muted-foreground">{item.category}</p>
+                                    </div>
+                                    <div className={`font-semibold ${item.current_stock === 0 ? 'text-red-600' : 'text-yellow-600'}`}>
+                                        Sisa {item.current_stock} {item.unit}
+                                    </div>
                                 </div>
-                                <span className={`px-2 py-1 rounded-full text-xs font-medium ${order.status === 'Baru' ? 'bg-blue-100 text-blue-800' : 'bg-yellow-100 text-yellow-800'}`}>
-                                    {order.status}
-                                </span>
-                            </div>
-                        );
-                    })}
-                     <Link to="/box-orders" className="pt-2 block text-center text-sm text-accent-foreground/80 hover:text-accent-foreground font-medium">Lihat Semua Pesanan Nasi Kotak →</Link>
-                </div>
-            ) : (<p className="text-muted-foreground text-center py-8">Tidak ada pesanan nasi kotak mendatang.</p>)}
-          </CardContent>
-        </Card>
+                            ))}
+                            {lowStockItems.length > 5 && (
+                                <Link to="/ingredients" className="pt-2 block text-center text-sm text-accent-foreground/80 hover:text-accent-foreground font-medium">
+                                    dan {lowStockItems.length - 5} lainnya...
+                                </Link>
+                            )}
+                        </div>
+                    ) : (
+                        <div className="text-center text-muted-foreground py-8">
+                            <CheckCircle className="h-10 w-10 mx-auto mb-2 text-green-500"/>
+                            <p className="font-medium text-green-600">Semua stok bahan baku aman!</p>
+                        </div>
+                    )}
+                </CardContent>
+             </Card>
+        </div>
       </div>
     </div>
   );

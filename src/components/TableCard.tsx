@@ -3,12 +3,13 @@
 import { Card, CardContent } from '@/components/ui/card';
 import { Table as TableType } from '@/types';
 import { Users, CheckCircle, Wind } from 'lucide-react';
-import FullScreenOrderDialog from './FullScreenOrderDialog';
+import { useNavigate } from 'react-router-dom';
 
 interface TableCardProps {
   table: TableType;
 }
 
+// Fungsi ini menentukan ikon dan warna berdasarkan status meja
 const getStatusProps = (status: TableType['status']) => {
   switch (status) {
     case 'occupied':
@@ -27,7 +28,7 @@ const getStatusProps = (status: TableType['status']) => {
         text: 'Selesai', 
         isClickable: false,
       };
-    default: // available
+    default: // 'available'
       return { 
         icon: <CheckCircle className="h-8 w-8 text-green-600" />, 
         color: 'bg-green-100 border-green-300 text-green-800 hover:bg-green-200',
@@ -40,9 +41,21 @@ const getStatusProps = (status: TableType['status']) => {
 
 export default function TableCard({ table }: TableCardProps) {
   const { icon, color, textColor, text, isClickable } = getStatusProps(table.status);
+  const navigate = useNavigate();
 
-  const cardContent = (
+  // Logika klik sekarang ditangani langsung di sini
+  const handleClick = () => {
+    // Hanya jika meja bisa diklik (status 'available'), arahkan ke halaman pemesanan
+    if (isClickable) {
+      // Mengarahkan ke halaman /orders di mana semua logika pemesanan sekarang berada
+      navigate('/orders');
+    }
+  };
+
+  return (
+    // PERBAIKAN: Komponen Card sekarang menjadi elemen utama yang bisa diklik
     <Card
+      onClick={handleClick}
       className={`transition-all duration-300 border-2 shadow-md rounded-xl overflow-hidden ${color} ${isClickable ? 'cursor-pointer hover:shadow-xl hover:-translate-y-1.5' : 'cursor-not-allowed'}`}
     >
       <CardContent className="p-4 text-center flex flex-col items-center justify-between gap-2 aspect-square">
@@ -56,14 +69,4 @@ export default function TableCard({ table }: TableCardProps) {
       </CardContent>
     </Card>
   );
-
-  if (table.status === 'available') {
-    return (
-      <FullScreenOrderDialog tableNumbers={[table.number]}>
-        {cardContent}
-      </FullScreenOrderDialog>
-    );
-  }
-
-  return cardContent;
 }

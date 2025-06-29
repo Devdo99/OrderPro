@@ -8,15 +8,19 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useApp } from '@/contexts/AppContext';
 import { Order } from '@/types';
-import { Clock, Package, Search, User, UserCog, Printer, Loader2 } from 'lucide-react'; // Impor ikon yang dibutuhkan
+import { Clock, Package, Search, User, UserCog, Printer, Loader2, Calendar as CalendarIcon, RefreshCw } from 'lucide-react';
 import { toast } from '@/hooks/use-toast';
 import ReceiptPreview from '@/components/ReceiptPreview';
 import OrderTimer from '@/components/OrderTimer';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Calendar } from "@/components/ui/calendar";
+import { DateRange } from "react-day-picker";
+import { format, isToday, isSameDay, startOfDay, endOfDay } from 'date-fns';
+import { id as localeID } from 'date-fns/locale';
 import {
   Pagination,
   PaginationContent,
-  PaginationEllipsis,
   PaginationItem,
   PaginationLink,
   PaginationNext,
@@ -24,14 +28,19 @@ import {
 } from "@/components/ui/pagination";
 
 export default function OrderList() {
-  // Ambil fungsi printReceipt dari AppContext
-  const { orders, updateOrderStatus, isLoading, printReceipt } = useApp(); 
+  const { orders, updateOrderStatus, isLoading, printReceipt, fetchAppData } = useApp(); 
   const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'completed' | 'cancelled'>('all');
   const [searchTerm, setSearchTerm] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
-  // State baru untuk melacak order yang sedang dicetak
-  const [printingOrderId, setPrintingOrderId] = useState<string | null>(null); 
-  const ordersPerPage = 5;
+  const [printingOrderId, setPrintingOrderId] = useState<string | null>(null);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  const [dateFilterType, setDateFilterType] = useState<'today' | 'single' | 'range'>('today');
+  const [singleDate, setSingleDate] = useState<Date | undefined>(new Date());
+  const [dateRange, setDateRange] = useState<DateRange | undefined>({
+    from: new Date(),
+    to: new Date(),
+  });
 
   const filteredOrders = useMemo(() => {
     return orders
@@ -47,13 +56,31 @@ export default function OrderList() {
             order.staffName,
             order.tableNumber
           ].join(' ').toLowerCase();
-          return searchIn.includes(lowerCaseSearch);
+          if (!searchIn.includes(lowerCaseSearch)) {
+            return false;
+          }
         }
-        return true;
+        const orderDate = new Date(order.createdAt);
+        switch (dateFilterType) {
+            case 'today':
+                return isToday(orderDate);
+            case 'single':
+                if (!singleDate) return false;
+                return isSameDay(orderDate, singleDate);
+            case 'range':
+                if (!dateRange?.from) return false;
+                const from = startOfDay(dateRange.from);
+                const to = dateRange.to ? endOfDay(dateRange.to) : endOfDay(dateRange.from);
+                return orderDate >= from && orderDate <= to;
+            default:
+                return true;
+        }
       })
       .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-  }, [orders, statusFilter, searchTerm]);
+  }, [orders, statusFilter, searchTerm, dateFilterType, singleDate, dateRange]);
 
+  // --- PERBAIKAN: Deklarasi dipindahkan ke atas ---
+  const ordersPerPage = 5;
   const indexOfLastOrder = currentPage * ordersPerPage;
   const indexOfFirstOrder = indexOfLastOrder - ordersPerPage;
   const currentOrders = filteredOrders.slice(indexOfFirstOrder, indexOfLastOrder);
@@ -67,11 +94,10 @@ export default function OrderList() {
     });
   };
   
-  // **FUNGSI BARU UNTUK CETAK LANGSUNG**
   const handleDirectPrint = async (order: Order) => {
-    setPrintingOrderId(order.id); // Set order ID yang sedang diproses untuk menampilkan loader
+    setPrintingOrderId(order.id);
     await printReceipt(order);
-    setPrintingOrderId(null); // Reset setelah selesai
+    setPrintingOrderId(null);
   };
 
   const handlePageChange = (page: number) => {
@@ -79,24 +105,23 @@ export default function OrderList() {
         setCurrentPage(page);
     }
   }
+  
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    toast({ title: 'Memuat ulang data pesanan...' });
+    await fetchAppData(false);
+    setIsRefreshing(false);
+    toast({ title: 'Data berhasil dimuat ulang!' });
+  }
 
   if (isLoading) {
     return (
       <div className="space-y-6">
+        <Card><CardContent className="p-4"><Skeleton className="h-10 w-full" /></CardContent></Card>
         <Card>
-          <CardContent className="p-4 flex flex-col md:flex-row gap-4">
-            <Skeleton className="h-10 w-full md:w-48" />
-            <Skeleton className="h-10 w-full md:w-64" />
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader>
-            <Skeleton className="h-8 w-40" />
-          </CardHeader>
+          <CardHeader><Skeleton className="h-8 w-40" /></CardHeader>
           <CardContent className="space-y-4">
-            <Skeleton className="h-32 w-full" />
-            <Skeleton className="h-32 w-full" />
-            <Skeleton className="h-32 w-full" />
+            <Skeleton className="h-32 w-full" /><Skeleton className="h-32 w-full" />
           </CardContent>
         </Card>
       </div>
@@ -106,30 +131,85 @@ export default function OrderList() {
   return (
     <div className="space-y-6">
       <Card>
-        <CardContent className="p-4 flex flex-col md:flex-row gap-4 items-center">
+        <CardContent className="p-4 flex flex-col md:flex-row gap-4 items-center flex-wrap">
             <div className="flex items-center gap-2 w-full md:w-auto">
-                <Label htmlFor="status-filter">Status:</Label>
+                <Label htmlFor="status-filter" className="shrink-0">Status:</Label>
                 <Select value={statusFilter} onValueChange={(value: any) => { setStatusFilter(value); setCurrentPage(1); }}>
-                  <SelectTrigger id="status-filter" className="w-full md:w-48">
+                  <SelectTrigger id="status-filter" className="w-full md:w-40">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="all">Semua Status</SelectItem>
+                    <SelectItem value="all">Semua</SelectItem>
                     <SelectItem value="pending">Pending</SelectItem>
                     <SelectItem value="completed">Selesai</SelectItem>
-                    <SelectItem value="cancelled">Dibatalkan</SelectItem>
+                    <SelectItem value="cancelled">Batal</SelectItem>
                   </SelectContent>
                 </Select>
             </div>
+            
+            <div className="flex items-center gap-2 w-full md:w-auto">
+                <Label htmlFor="date-filter-type" className="shrink-0">Tanggal:</Label>
+                <Select value={dateFilterType} onValueChange={(value: any) => setDateFilterType(value)}>
+                    <SelectTrigger id="date-filter-type" className="w-full md:w-48">
+                        <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                        <SelectItem value="today">Hari Ini</SelectItem>
+                        <SelectItem value="single">Tanggal Spesifik</SelectItem>
+                        <SelectItem value="range">Rentang Tanggal</SelectItem>
+                    </SelectContent>
+                </Select>
+            </div>
+            
+            {dateFilterType === 'single' && (
+                <Popover>
+                    <PopoverTrigger asChild>
+                        <Button variant="outline" className="w-full justify-start text-left font-normal md:w-auto">
+                            <CalendarIcon className="mr-2 h-4 w-4" />
+                            {singleDate ? format(singleDate, "PPP", { locale: localeID }) : <span>Pilih tanggal</span>}
+                        </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-auto p-0">
+                        <Calendar mode="single" selected={singleDate} onSelect={setSingleDate} initialFocus/>
+                    </PopoverContent>
+                </Popover>
+            )}
+
+            {dateFilterType === 'range' && (
+                <Popover>
+                    <PopoverTrigger asChild>
+                        <Button variant="outline" className="w-full justify-start text-left font-normal md:w-auto">
+                            <CalendarIcon className="mr-2 h-4 w-4" />
+                            {dateRange?.from ? (
+                                dateRange.to ? (
+                                    <>
+                                        {format(dateRange.from, "LLL d, y", { locale: localeID })} - {format(dateRange.to, "LLL d, y", { locale: localeID })}
+                                    </>
+                                ) : (
+                                    format(dateRange.from, "LLL d, y", { locale: localeID })
+                                )
+                            ) : <span>Pilih rentang</span>}
+                        </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-auto p-0">
+                        <Calendar mode="range" defaultMonth={dateRange?.from} selected={dateRange} onSelect={setDateRange} numberOfMonths={2}/>
+                    </PopoverContent>
+                </Popover>
+            )}
+
             <div className="relative w-full md:flex-1">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                 <Input 
-                    placeholder="Cari no. order, pelanggan, atau staff..." 
+                    placeholder="Cari no. order, pelanggan..." 
                     className="pl-10"
                     value={searchTerm}
                     onChange={(e) => { setSearchTerm(e.target.value); setCurrentPage(1); }}
                 />
             </div>
+            
+            <Button variant="outline" size="icon" onClick={handleRefresh} disabled={isRefreshing}>
+                <RefreshCw className={`h-4 w-4 ${isRefreshing ? 'animate-spin' : ''}`} />
+            </Button>
         </CardContent>
       </Card>
 
@@ -221,7 +301,7 @@ export default function OrderList() {
         {filteredOrders.length === 0 && (
           <div className="text-center py-16 text-gray-500">
             <h3 className="text-lg font-semibold">Tidak Ada Order Ditemukan</h3>
-            <p>Coba ubah filter atau kata kunci pencarian Anda.</p>
+            <p>Tidak ada data pesanan untuk filter yang dipilih.</p>
           </div>
         )}
       </div>

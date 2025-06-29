@@ -1,5 +1,49 @@
 // src/types/index.ts
 
+export interface OrderItem {
+  id: string;
+  stockId: string;
+  stockName: string;
+  quantity: number;
+  unit: string;
+  variantName?: string;
+  notes?: string;
+}
+
+export interface Order {
+  id: string;
+  orderNumber: string;
+  createdAt: Date;
+  items: OrderItem[];
+  totalItems: number;
+  status: 'pending' | 'completed' | 'cancelled';
+  customer?: string;
+  tableNumber?: string;
+  staffName?: string;
+  notes?: string;
+  orderType?: string;
+}
+
+export interface BoxOrderItem {
+  productId: string;
+  productName: string;
+  quantity: number;
+}
+
+export interface BoxOrder {
+  id: string;
+  customer_name: string;
+  customer_phone?: string;
+  items: BoxOrderItem[];
+  order_date: string;
+  pickup_date: string;
+  payment_status: 'lunas' | 'dp' | 'belum_bayar';
+  payment_method: 'cash' | 'transfer' | 'lainnya';
+  status: 'Baru' | 'Diproses' | 'Selesai' | 'Dibatalkan';
+  notes?: string;
+  created_at: string;
+}
+
 export interface RecipeItem {
   ingredientId: string;
   quantityNeeded: number;
@@ -7,7 +51,6 @@ export interface RecipeItem {
 
 export interface ProductVariant {
   name: string;
-  recipeModifier?: RecipeItem[];
 }
 
 export interface StockItem {
@@ -24,77 +67,31 @@ export interface StockItem {
   variants: ProductVariant[] | null;
 }
 
-export interface OrderItem {
-  id: string; 
-  stockId: string;
-  stockName: string;
-  quantity: number;
-  unit: string;
-  notes?: string;
-  orderType?: string;
-  variantName?: string; 
-}
-
-export interface Order {
-  id: string;
-  createdAt: Date; 
-  orderNumber: string;
-  items: OrderItem[];
-  totalItems: number;
-  status: 'pending' | 'completed' | 'cancelled' | 'archived';
-  customer?: string;
-  tableNumber?: string;
-  staffName?: string;
-  notes?: string;
-  orderType?: string;
-}
-
 export interface Table {
-  id: string;
-  number: string;
-  status: 'available' | 'occupied' | 'reserved' | 'recently_completed';
-  capacity: number;
-  orderId?: string;
+    id: string;
+    number: string;
+    status: 'available' | 'occupied' | 'recently_completed';
+    capacity: number;
 }
 
 export interface AppSettings {
   restaurantName: string;
   address: string;
   phone: string;
-  currency: string;
   receiptFooter: string;
-  orderTypes: string[];
   numberOfTables: number;
+  orderTypes: string[];
   defaultStaffName: string;
-  staffList: string[]; 
+  staffList: string[];
   paperSize: '58mm' | '80mm';
-  enableCheckboxReceipt: boolean;
   autoPrintReceipt: boolean;
+  enableCheckboxReceipt: boolean;
   bluetoothPrinter: string;
   autoBackup: boolean;
-  theme: 'light' | 'dark' | 'system';
+  theme: 'system' | 'light' | 'dark';
   printCopies: number;
   enablePackageMenu: boolean;
   packageCategories: string[];
   reportsPassword?: string;
-}
-
-export interface BoxOrderItem {
-  productId: string;
-  productName: string;
-  quantity: number;
-}
-
-export interface BoxOrder {
-  id: string;
-  customer_name: string;
-  customer_phone?: string; // <-- TAMBAHKAN INI
-  items: BoxOrderItem[];
-  order_date: string;
-  pickup_date: string;
-  payment_status: 'lunas' | 'dp' | 'belum_bayar';
-  payment_method: 'cash' | 'transfer' | 'lainnya';
-  status: 'Baru' | 'Diproses' | 'Selesai' | 'Dibatalkan';
-  notes?: string;
-  created_at: string;
+  // currency: string; // <-- Properti ini dihapus
 }

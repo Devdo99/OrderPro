@@ -24,13 +24,16 @@ interface AppContextType {
     stocks: StockItem[];
     orders: Order[];
     boxOrders: BoxOrder[];
+    productPopularity: Map<string, number>;
     settings: AppSettings;
     tables: Table[];
     staffList: string[];
     activePrinters: ActivePrinter[];
+    savedPrinters: BluetoothDevice[];
     isLoading: boolean;
     isAppDataLoading: boolean;
     isReconnectingPrinter: boolean;
+    fetchAppData: (isInitialLoad?: boolean) => Promise<void>; // <-- PERBAIKAN: Menambahkan deklarasi
     addStock: (stockData: Omit<StockItem, 'id' | 'created_at' | 'last_updated'>) => Promise<void>;
     updateStock: (id: string, updates: Partial<Omit<StockItem, 'id' | 'created_at' | 'last_updated'>>) => Promise<void>;
     deleteStock: (id: string) => Promise<void>;
@@ -44,6 +47,7 @@ interface AppContextType {
     printReceipt: (order: Order) => Promise<boolean>;
     printBoxOrderReceipt: (order: BoxOrder) => Promise<boolean>;
     connectBluetoothPrinter: () => Promise<boolean>;
+    reconnectPrinter: (device: BluetoothDevice) => Promise<void>;
     disconnectPrinter: (printerId: string) => void;
     getProducibleQuantity: (productId: string) => number;
     clearTable: (orderId: string) => Promise<void>;
@@ -51,18 +55,16 @@ interface AppContextType {
     auth: {
         signUp: (params: any) => Promise<{ data: { user: User | null; session: Session | null; }; error: AuthError | null; }>;
         signIn: (params: any) => Promise<{ data: { user: User | null; session: Session | null; }; error: AuthError | null; }>;
-        signOut: () => Promise<{ error: AuthError | null }>;
+        signOut: () => Promise<{ error: AuthError | null; }>;
     };
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
-const defaultSettings: AppSettings = { restaurantName: 'RestoranKu', address: 'Jl. Jenderal Sudirman No. 1', phone: '08123456789', currency: 'Rp', receiptFooter: 'Terima Kasih atas Kunjungan Anda!', numberOfTables: 10, orderTypes: ['Dine In', 'Take Away', 'Delivery'], defaultStaffName: 'Kasir', staffList: ['Kasir', 'Admin'], paperSize: '80mm', enableCheckboxReceipt: false, autoPrintReceipt: false, bluetoothPrinter: '', autoBackup: false, theme: 'system', printCopies: 1, enablePackageMenu: false, packageCategories: [], reportsPassword: 'admin', };
-const mapOrderRowToOrder = (row: OrderRow): Order => ({ id: row.id, orderNumber: row.order_number, createdAt: new Date(row.created_at), items: (row.items as unknown as OrderItem[]) || [], totalItems: row.total_items || 0, status: (row.status as Order['status']) || 'pending', customer: row.customer || undefined, tableNumber: row.table_number || undefined, staffName: row.staff_name || undefined, notes: row.notes || undefined, orderType: row.order_type || undefined, });
-const mapStockRowToStockItem = (row: StockRow): StockItem => ({ ...row, id: row.id, created_at: row.created_at, last_updated: row.last_updated, name: row.name, type: row.type as 'BAHAN' | 'PRODUK', category: row.category || '', unit: row.unit || '', recipe: (row.recipe as unknown as RecipeItem[]) || null, variants: (row.variants as unknown as ProductVariant[]) || null, current_stock: row.current_stock, min_stock: row.min_stock });
+const defaultSettings: AppSettings = { restaurantName: 'RestoranKu', address: 'Jl. Jenderal Sudirman No. 1', phone: '08123456789', receiptFooter: 'Terima Kasih atas Kunjungan Anda!', numberOfTables: 10, orderTypes: ['Dine In', 'Take Away', 'Delivery'], defaultStaffName: 'Kasir', staffList: ['Kasir', 'Admin'], paperSize: '80mm', enableCheckboxReceipt: false, autoPrintReceipt: false, bluetoothPrinter: '', autoBackup: false, theme: 'system', printCopies: 1, enablePackageMenu: false, packageCategories: [], reportsPassword: 'admin', };
+const mapOrderRowToOrder = (row: any): Order => ({ id: row.id, orderNumber: row.order_number, createdAt: new Date(row.created_at), items: (row.items as unknown as OrderItem[]) || [], totalItems: row.total_items || 0, status: (row.status as Order['status']) || 'pending', customer: row.customer || undefined, tableNumber: row.table_number || undefined, staffName: row.staff_name || undefined, notes: row.notes || undefined, orderType: row.order_type || undefined, });
+const mapStockRowToStockItem = (row: any): StockItem => ({ ...row, id: row.id, created_at: row.created_at, last_updated: row.last_updated, name: row.name, type: row.type as 'BAHAN' | 'PRODUK', category: row.category || '', unit: row.unit || '', recipe: (row.recipe as unknown as RecipeItem[]) || null, variants: (row.variants as unknown as ProductVariant[]) || null, current_stock: row.current_stock, min_stock: row.min_stock });
 const mapBoxOrderRowToBoxOrder = (row: any): BoxOrder => ({ ...row, items: Array.isArray(row.items) ? row.items : [], });
-
-const SAVED_PRINTER_IDS_KEY = 'orderpal-saved-printer-ids';
 
 export const AppProvider = ({ children }: { children: ReactNode }) => {
   const [session, setSession] = useState<Session | null>(null);
@@ -75,8 +77,10 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
   const [boxOrders, setBoxOrders] = useState<BoxOrder[]>([]);
   const [tables, setTables] = useState<Table[]>([]);
   const [activePrinters, setActivePrinters] = useState<ActivePrinter[]>([]);
+  const [savedPrinters, setSavedPrinters] = useState<BluetoothDevice[]>([]);
   const [isReconnectingPrinter, setIsReconnectingPrinter] = useState(false);
-
+  const [productPopularity, setProductPopularity] = useState<Map<string, number>>(new Map());
+  
   const fetchAppData = useCallback(async (isInitialLoad = false) => {
     if (isInitialLoad) {
         setIsAppDataLoading(true);
@@ -103,30 +107,34 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     }
   }, []);
 
-  // --- PERBAIKAN: Menggunakan .maybeSingle() untuk mengambil profil ---
+  useEffect(() => {
+    if (orders.length > 0) {
+      const popularityMap = new Map<string, number>();
+      orders.forEach(order => {
+        if (order.status === 'completed' && Array.isArray(order.items)) {
+          order.items.forEach(item => {
+            const currentCount = popularityMap.get(item.stockId) || 0;
+            popularityMap.set(item.stockId, currentCount + item.quantity);
+          });
+        }
+      });
+      setProductPopularity(popularityMap);
+    }
+  }, [orders]); 
+
   useEffect(() => {
     const bootstrapSession = async () => {
       setIsLoading(true);
       const { data: { session: initialSession }, error: sessionError } = await supabase.auth.getSession();
-
       if (sessionError) {
           toast({ title: "Error Sesi", description: sessionError.message, variant: "destructive" });
           setIsLoading(false);
           return;
       }
-
       setSession(initialSession);
-
       if (initialSession) {
-        // Menggunakan .maybeSingle() agar tidak error jika profil belum ada
-        const { data: userProfile, error: profileError } = await supabase
-          .from('profiles')
-          .select('*')
-          .eq('id', initialSession.user.id)
-          .maybeSingle(); 
-
+        const { data: userProfile, error: profileError } = await supabase.from('profiles').select('*').eq('id', initialSession.user.id).maybeSingle(); 
         if (profileError) {
-            // Kita tidak menganggap '406' sebagai error fatal lagi
             console.error("Error mengambil profil:", profileError);
             toast({ title: "Gagal Mengambil Profil", description: profileError.message, variant: "destructive" });
         }
@@ -134,85 +142,73 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
       }
       setIsLoading(false);
     };
-
     bootstrapSession();
-
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, newSession) => {
       setSession(newSession);
       if (!newSession) {
         setProfile(null);
       } else {
-        // Coba ambil profil lagi saat sesi berubah
         bootstrapSession();
       }
     });
-
     return () => subscription.unsubscribe();
   }, []);
   
   useEffect(() => {
     if (!session) return;
-
     fetchAppData(true);
-
     const handleRealtimeUpdate = (payload: RealtimePostgresChangesPayload<{ [key: string]: any }>) => {
       console.log('🔄 Perubahan real-time terdeteksi:', payload);
-      toast({ title: "Data diperbarui secara real-time!" });
-      fetchAppData(false); 
+      toast({ title: "Data diperbarui secara otomatis!" });
+      const table = payload.table;
+      if (table === 'orders') {
+          const newOrder = mapOrderRowToOrder(payload.new);
+          if (payload.eventType === 'INSERT') {
+              setOrders(currentOrders => [newOrder, ...currentOrders]);
+          } else if (payload.eventType === 'UPDATE') {
+              setOrders(currentOrders => currentOrders.map(o => o.id === newOrder.id ? newOrder : o));
+          } else if (payload.eventType === 'DELETE') {
+              const oldOrder = payload.old as Order;
+              setOrders(currentOrders => currentOrders.filter(o => o.id !== oldOrder.id));
+          }
+      } else {
+        fetchAppData();
+      }
     };
-
-    const channel = supabase
-      .channel('order-pal-realtime-channel')
-      .on('postgres_changes', { event: '*', schema: 'public' }, handleRealtimeUpdate)
+    const channel = supabase.channel('order-pal-realtime-channel').on('postgres_changes', { event: '*', schema: 'public' }, handleRealtimeUpdate)
       .subscribe((status, err) => {
-        if (status === 'SUBSCRIBED') {
-          console.log('✅ Berhasil terhubung ke channel real-time!');
-        }
-        if (status === 'TIMED_OUT') {
-          console.warn('⌛ Koneksi real-time timeout. Mencoba menyambung ulang...');
-        }
-        if (status === 'CHANNEL_ERROR') {
-          console.error('❌ Terjadi error pada channel real-time:', err);
-        }
+        if (status === 'SUBSCRIBED') console.log('✅ Berhasil terhubung ke channel real-time!');
+        if (status === 'TIMED_OUT') console.warn('⌛ Koneksi real-time timeout...');
+        if (status === 'CHANNEL_ERROR') console.error('❌ Terjadi error pada channel real-time:', err);
       });
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
+    return () => { supabase.removeChannel(channel); };
   }, [session, fetchAppData]);
   
   useEffect(() => {
-    if(session){
-        setTables(Array.from({ length: settings.numberOfTables || 0 }, (_, i) => ({ id: `${i + 1}`, number: `${i + 1}`, status: 'available', capacity: 4 })));
-    }
+    if(session) setTables(Array.from({ length: settings.numberOfTables || 0 }, (_, i) => ({ id: `${i + 1}`, number: `${i + 1}`, status: 'available', capacity: 4 })));
   }, [settings.numberOfTables, session]);
 
   const _connectToDeviceAndSetState = useCallback(async (device: BluetoothDevice) => {
-    if (activePrinters.some(p => p.device.id === device.id)) {
-      console.log(`Printer ${device.name} sudah terhubung.`);
+    if (activePrinters.some(p => p.device.id === device.id && p.server.connected)) {
       return true;
     }
-    if (!device.gatt) throw new Error("GATT Server tidak ditemukan pada perangkat.");
+    if (!device.gatt) throw new Error("GATT Server tidak ditemukan.");
     const server = await device.gatt.connect();
     const services = await server.getPrimaryServices();
     let writableCharacteristic: BluetoothRemoteGATTCharacteristic | null = null;
     for (const service of services) {
       const characteristics = await service.getCharacteristics();
-      for (const characteristic of characteristics) {
-        if (characteristic.properties.write || characteristic.properties.writeWithoutResponse) {
-          writableCharacteristic = characteristic;
+      for (const char of characteristics) {
+        if (char.properties.write || char.properties.writeWithoutResponse) {
+          writableCharacteristic = char;
           break;
         }
       }
       if (writableCharacteristic) break;
     }
-    if (!writableCharacteristic) throw new Error("Tidak ditemukan characteristic yang bisa ditulis.");
+    if (!writableCharacteristic) throw new Error("Characteristic yang bisa ditulis tidak ditemukan.");
     const newPrinter: ActivePrinter = { device, server, characteristic: writableCharacteristic };
     setActivePrinters(prev => [...prev.filter(p => p.device.id !== device.id), newPrinter]);
-    const savedIds = JSON.parse(localStorage.getItem(SAVED_PRINTER_IDS_KEY) || '[]');
-    if (!savedIds.includes(device.id)) {
-      localStorage.setItem(SAVED_PRINTER_IDS_KEY, JSON.stringify([...savedIds, device.id]));
-    }
     return true;
   }, [activePrinters]);
 
@@ -224,62 +220,62 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
     try {
       const device = await navigator.bluetooth.requestDevice({
         filters: [{ services: ['000018f0-0000-1000-8000-00805f9b34fb'] }],
-        acceptAllDevices: false,
       });
       await _connectToDeviceAndSetState(device);
       toast({ title: "Printer Terhubung", description: `Berhasil terhubung ke ${device.name || 'printer'}` });
+      setSavedPrinters(prev => [...prev.filter(p => p.id !== device.id), device]);
       return true;
     } catch (error: any) {
-      if (error.name !== 'NotFoundError') {
-        toast({ title: "Koneksi Gagal", description: error.message, variant: "destructive" });
-      }
+      if (error.name !== 'NotFoundError') toast({ title: "Koneksi Gagal", description: error.message, variant: "destructive" });
       return false;
     }
   };
   
+  const reconnectPrinter = async (device: BluetoothDevice) => {
+    toast({ title: "Mencoba Menyambung Ulang...", description: `Menghubungkan ke ${device.name}`});
+    try {
+        await _connectToDeviceAndSetState(device);
+        toast({ title: "Berhasil Terhubung", description: `Terhubung kembali ke ${device.name}`});
+    } catch (error: any) {
+        toast({ title: "Gagal Menyambung", description: error.message, variant: "destructive"});
+        disconnectPrinter(device.id);
+    }
+  }
+
   const disconnectPrinter = useCallback((printerId: string) => {
     const printerToDisconnect = activePrinters.find(p => p.device.id === printerId);
     if (printerToDisconnect?.server.connected) {
       printerToDisconnect.server.disconnect();
     }
     setActivePrinters(prev => prev.filter(p => p.device.id !== printerId));
-    const savedIds = JSON.parse(localStorage.getItem(SAVED_PRINTER_IDS_KEY) || '[]');
-    localStorage.setItem(SAVED_PRINTER_IDS_KEY, JSON.stringify(savedIds.filter((id: string) => id !== printerId)));
     toast({ title: "Koneksi Printer Diputus" });
   }, [activePrinters]);
 
   useEffect(() => {
-    const reconnectPrinters = async () => {
-      const savedIdsString = localStorage.getItem(SAVED_PRINTER_IDS_KEY);
-      if (!savedIdsString) return;
+    const getPermittedPrinters = async () => {
       if (!navigator.bluetooth?.getDevices) {
         console.warn("API getDevices() tidak tersedia untuk koneksi ulang otomatis.");
         return;
       }
-      const savedIds = JSON.parse(savedIdsString) as string[];
-      if (savedIds.length === 0) return;
-      setIsReconnectingPrinter(true);
-      toast({ title: "Menyambungkan Ulang Printer", description: `Mencoba terhubung ke ${savedIds.length} printer...` });
-      const permittedDevices = await navigator.bluetooth.getDevices();
-      for (const savedId of savedIds) {
-          const device = permittedDevices.find(d => d.id === savedId);
-          if (device) {
-            console.log(`Mencoba menyambung ke ${device.name}...`);
-            try {
-              await _connectToDeviceAndSetState(device);
-              toast({ title: "Printer Tersambung Otomatis", description: `Terhubung kembali ke ${device.name}` });
-            } catch (error: any) {
-              console.error(`Gagal menyambung ulang ke ${device.name}:`, error);
-              toast({ title: "Gagal Menyambung Ulang", description: `Tidak dapat terhubung ke ${device.name}. Silakan coba hubungkan manual.`, variant: 'destructive' });
+      try {
+        const permittedDevices = await navigator.bluetooth.getDevices();
+        setSavedPrinters(permittedDevices);
+        if(permittedDevices.length > 0) {
+            toast({ title: "Mencoba menyambung otomatis..." });
+            setIsReconnectingPrinter(true);
+            for (const device of permittedDevices) {
+                await reconnectPrinter(device);
             }
-          }
+            setIsReconnectingPrinter(false);
+        }
+      } catch (error) {
+        console.error("Gagal mendapatkan daftar perangkat yang diizinkan:", error);
       }
-      setIsReconnectingPrinter(false);
     };
     if (session) {
-      reconnectPrinters();
+      getPermittedPrinters();
     }
-  }, [session, _connectToDeviceAndSetState]);
+  }, [session, reconnectPrinter]);
     
   const addStock = async (stockData: Omit<StockItem, 'id' | 'created_at' | 'last_updated'>) => { await supabase.from('stocks').insert({ ...stockData } as any); };
   const updateStock = async (id: string, updates: Partial<Omit<StockItem, 'id' | 'created_at' | 'last_updated'>>) => { await supabase.from('stocks').update({ ...updates, last_updated: new Date().toISOString() } as any).eq('id', id); };
@@ -299,12 +295,14 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
   const printReceipt = async (order: Order): Promise<boolean> => { const receiptData = await generateReceiptBytes(order, settings); return await printToAllPrinters(receiptData); };
   const printBoxOrderReceipt = async (order: BoxOrder): Promise<boolean> => { const receiptData = await generateBoxOrderReceiptBytes(order, settings); return await printToAllPrinters(receiptData); };
 
+  // --- PERBAIKAN: Memastikan semua state dan fungsi diekspor ---
   const value: AppContextType = {
-    isLoading, isAppDataLoading, session, profile, stocks, orders, boxOrders, tables, settings, staffList: settings.staffList || [],
-    activePrinters, isReconnectingPrinter, addStock, updateStock, deleteStock, bulkImportStocks, addOrder, updateOrderStatus,
+    isLoading, isAppDataLoading, session, profile, stocks, orders, boxOrders, productPopularity, tables, settings, staffList: settings.staffList || [],
+    activePrinters, savedPrinters, isReconnectingPrinter, addStock, updateStock, deleteStock, bulkImportStocks, addOrder, updateOrderStatus,
     updateBoxOrderStatus,
-    updateSettings, addStaff, removeStaff, printReceipt, printBoxOrderReceipt, connectBluetoothPrinter, disconnectPrinter,
+    updateSettings, addStaff, removeStaff, printReceipt, printBoxOrderReceipt, connectBluetoothPrinter, reconnectPrinter, disconnectPrinter,
     getProducibleQuantity, clearTable, transferTable,
+    fetchAppData,
     auth: {
         signUp: (params) => supabase.auth.signUp(params),
         signIn: (params) => supabase.auth.signInWithPassword(params),
@@ -315,6 +313,7 @@ export const AppProvider = ({ children }: { children: ReactNode }) => {
   return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
 };
 
+// --- PERBAIKAN: Memastikan `useApp` diekspor dengan benar ---
 export const useApp = () => {
   const context = useContext(AppContext);
   if (context === undefined) {

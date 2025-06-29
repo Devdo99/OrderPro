@@ -3,7 +3,7 @@
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Search, ShoppingCart } from 'lucide-react';
+import { Search, ShoppingCart, RefreshCw } from 'lucide-react';
 
 interface SearchFilterBarProps {
   searchTerm: string;
@@ -13,6 +13,7 @@ interface SearchFilterBarProps {
   categories: string[];
   cartItemCount: number;
   onViewCartClick: () => void;
+  onRefreshClick: () => void; // <-- Prop baru untuk aksi refresh
 }
 
 export default function SearchFilterBar({
@@ -22,7 +23,8 @@ export default function SearchFilterBar({
   onCategoryChange,
   categories,
   cartItemCount,
-  onViewCartClick
+  onViewCartClick,
+  onRefreshClick // <-- Prop baru untuk aksi refresh
 }: SearchFilterBarProps) {
   return (
     <div className='space-y-4'>
@@ -37,6 +39,11 @@ export default function SearchFilterBar({
                 />
             </div>
             
+            {/* --- Tombol Refresh Baru --- */}
+            <Button variant="outline" size="icon" onClick={onRefreshClick}>
+              <RefreshCw className="h-4 w-4" />
+            </Button>
+            
             {cartItemCount > 0 && (
                 <Button onClick={onViewCartClick} className="w-full sm:w-auto shrink-0">
                 <ShoppingCart className="mr-2 h-4 w-4" />
@@ -46,7 +53,6 @@ export default function SearchFilterBar({
             )}
         </div>
         
-        {/* --- FITUR BARU: Filter Kategori Cepat --- */}
         <div className="flex items-center gap-2 overflow-x-auto pb-2">
             <Button
                 variant={selectedCategory === 'all' ? 'default' : 'outline'}

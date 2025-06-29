@@ -2,14 +2,13 @@
 
 import { SidebarProvider, SidebarTrigger } from '@/components/ui/sidebar';
 import { AppSidebar } from './AppSidebar';
-import { ReactNode, Suspense } from 'react'; // Impor Suspense
-import { Loader2 } from 'lucide-react'; // Impor ikon loader
+import { ReactNode, Suspense } from 'react';
+import { Loader2 } from 'lucide-react';
 
 interface LayoutProps {
   children: ReactNode;
 }
 
-// Komponen Fallback untuk loading
 const LoadingFallback = () => (
   <div className="flex-1 flex items-center justify-center h-full">
     <div className="flex flex-col items-center gap-4 text-gray-500">
@@ -25,14 +24,13 @@ export default function Layout({ children }: LayoutProps) {
       <div className="min-h-screen flex w-full bg-gray-50">
         <AppSidebar />
         
-        <div className="flex-1 flex flex-col">
-          {/* Header */}
-          <header className="h-16 bg-white border-b border-gray-200 flex items-center px-4 shadow-sm">
+        <div className="flex-1 flex flex-col min-w-0"> {/* PERBAIKAN: Menambahkan min-w-0 untuk mencegah overflow */}
+          <header className="h-16 bg-white border-b border-gray-200 flex items-center px-4 shadow-sm shrink-0">
             <SidebarTrigger className="mr-4 hover:bg-gray-100" />
             <div className="flex-1">
-              <h2 className="text-xl font-semibold text-gray-800">Management Order Makanan</h2>
+              <h2 className="text-xl font-semibold text-gray-800 truncate">Management Order Makanan</h2>
             </div>
-            <div className="text-sm text-gray-500">
+            <div className="text-sm text-gray-500 hidden md:block">
               {new Date().toLocaleDateString('id-ID', { 
                 weekday: 'long', 
                 year: 'numeric', 
@@ -42,11 +40,13 @@ export default function Layout({ children }: LayoutProps) {
             </div>
           </header>
 
-          {/* Main Content dengan Suspense */}
-          <main className="flex-1 p-6 overflow-auto">
-            <Suspense fallback={<LoadingFallback />}>
-              {children}
-            </Suspense>
+          {/* PERBAIKAN: Membungkus main content dengan container yang lebih baik */}
+          <main className="flex-1 p-4 sm:p-6 overflow-auto">
+            <div className="max-w-7xl mx-auto w-full h-full">
+                <Suspense fallback={<LoadingFallback />}>
+                {children}
+                </Suspense>
+            </div>
           </main>
         </div>
       </div>
